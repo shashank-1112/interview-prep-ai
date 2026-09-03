@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sales Call Analytics — POC</title>
+<style>
+  :root {
+    --bg: #0f172a; --panel: #1e293b; --panel-2: #273449; --text: #e2e8f0;
+    --muted: #94a3b8; --accent: #6366f1; --good: #22c55e; --mid: #eab308; --bad: #ef4444;
+    --border: #334155;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg); color: var(--text); min-height: 100vh;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 40px 20px 80px; }
+  h1 { font-size: 1.6rem; margin-bottom: 4px; }
+  .subtitle { color: var(--muted); margin-top: 0; margin-bottom: 28px; }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 24px; margin-bottom: 20px;
+  }
+  .upload-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  input[type=file] { color: var(--text); flex: 1; min-width: 220px; }
+  select {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 9px 12px; font-size: 0.9rem;
+  }
+  button {
+    background: var(--accent); color: white; border: none; border-radius: 8px;
+    padding: 10px 20px; font-size: 0.95rem; font-weight: 600; cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button:hover:not(:disabled) { filter: brightness(1.1); }
+
+  .status { margin-top: 14px; color: var(--muted); font-size: 0.9rem; }
+  .status.error { color: var(--bad); }
+
+  .hidden { display: none; }
+
+  .section-title {
+    font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--muted); margin: 0 0 10px;
+  }
+  .section-title span { text-transform: none; letter-spacing: normal; font-weight: 400; }
+
+  .rating-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border);
+  }
+  .rating-row:last-child { border-bottom: none; }
+  .rating-label { font-weight: 600; }
+  .rating-comment { color: var(--muted); font-size: 0.88rem; margin-top: 2px; }
+  .rating-badge {
+    flex-shrink: 0; min-width: 34px; text-align: center; font-weight: 700;
+    padding: 4px 10px; border-radius: 999px; font-size: 0.85rem;
+  }
+  .r5, .r4 { background: rgba(34,197,94,0.15); color: var(--good); }
+  .r3 { background: rgba(234,179,8,0.15); color: var(--mid); }
+  .r2, .r1 { background: rgba(239,68,68,0.15); color: var(--bad); }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+
+  ul.plain { margin: 0; padding-left: 20px; }
+  ul.plain li { margin-bottom: 6px; }
+
+  .transcript-box {
+    background: var(--panel-2); border-radius: 8px; padding: 16px;
+    max-height: 260px; overflow-y: auto; white-space: pre-wrap; font-size: 0.9rem;
+    line-height: 1.5;
+  }
+
+  .spinner {
+    width: 16px; height: 16px; border: 2px solid var(--muted);
+    border-top-color: var(--accent); border-radius: 50%;
+    display: inline-block; animation: spin 0.8s linear infinite; vertical-align: -3px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .card-header-row {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  }
+
+  .outcome-badge {
+    flex-shrink: 0; font-size: 0.75rem; font-weight: 700; padding: 4px 10px;
+    border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em;
+    background: rgba(99,102,241,0.15); color: var(--accent);
+  }
+
+  .coaching-focus {
+    background: rgba(99,102,241,0.1); border: 1px solid var(--accent);
+    border-radius: 8px; padding: 14px 16px; font-size: 0.95rem; line-height: 1.5;
+  }
+
+  .evidence {
+    color: var(--muted); font-size: 0.8rem; font-style: italic; margin-top: 4px;
+    padding-left: 10px; border-left: 2px solid var(--border);
+  }
+
+  .action-item { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .action-text { flex: 1; min-width: 160px; }
+
+  .tag {
+    flex-shrink: 0; font-size: 0.72rem; font-weight: 700; padding: 2px 8px;
+    border-radius: 999px; text-transform: uppercase;
+  }
+  .tag-priority-high { background: rgba(239,68,68,0.15); color: var(--bad); }
+  .tag-priority-medium { background: rgba(234,179,8,0.15); color: var(--mid); }
+  .tag-priority-low { background: rgba(148,163,184,0.15); color: var(--muted); }
+  .tag-owner { background: rgba(148,163,184,0.12); color: var(--muted); }
+
+  .dynamics-row { padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .dynamics-row:last-child { border-bottom: none; }
+  .dynamics-label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 3px; }
+
+  .sentiment-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .sentiment-chip {
+    flex: 1; min-width: 140px; background: var(--panel-2); border-radius: 8px;
+    padding: 8px 10px; font-size: 0.85rem;
+  }
+  .sentiment-chip strong { display: block; font-size: 0.72rem; color: var(--muted); text-transform: uppercase; margin-bottom: 2px; }
+
+  .signal-group { margin-bottom: 16px; }
+  .signal-group:last-child { margin-bottom: 0; }
+  .signal-title { font-size: 0.8rem; font-weight: 600; margin-bottom: 6px; }
+  .chip-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    background: var(--panel-2); border-radius: 999px; padding: 4px 10px; font-size: 0.82rem;
+  }
+  .empty-note { color: var(--muted); font-size: 0.85rem; font-style: italic; }
+
+  .report-toolbar { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+  .report-toolbar button { background: var(--panel-2); border: 1px solid var(--border); }
+
+  .print-only { display: none; }
+
+  @media print {
+    .no-print { display: none !important; }
+    .print-only { display: block; }
+
+    body { background: #fff; color: #111; }
+    .wrap { max-width: 100%; padding: 0; }
+    h1, .subtitle { display: none; }
+
+    #print-title { font-size: 1.4rem; margin: 0 0 2px; }
+    #print-date { color: #555; font-size: 0.85rem; margin: 0 0 16px; }
+
+    .card {
+      background: #fff; border: 1px solid #ccc; box-shadow: none;
+      break-inside: avoid; padding: 14px 16px; margin-bottom: 12px;
+    }
+    .grid { display: block; }
+    .grid .card { margin-bottom: 12px; }
+
+    .section-title, .dynamics-label, .signal-title { color: #555; }
+    .rating-comment, .evidence, .empty-note { color: #444; }
+    .rating-row, .dynamics-row { border-bottom: 1px solid #ddd; }
+
+    .transcript-box, .sentiment-chip, .chip, .coaching-focus { background: #f4f4f4; color: #111; }
+    .coaching-focus { border-color: #999; }
+
+    .rating-badge, .outcome-badge, .tag { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Sales Call Analytics</h1>
+  <p class="subtitle">Upload a recorded sales call to generate a transcript and AI-driven dealer assessment.</p>
+
+  <div class="card no-print">
+    <form id="upload-form">
+      <div class="upload-row">
+        <input type="file" id="audio-file" accept=".mp3,.wav,.m4a,.aac,.ogg,.opus,.mp4" required>
+        <select id="provider">
+          <option value="groq">Groq (Whisper)</option>
+          <option value="elevenlabs">ElevenLabs (Scribe)</option>
+        </select>
+        <button type="submit" id="submit-btn">Analyze Call</button>
+      </div>
+      <div class="status" id="status"></div>
+    </form>
+  </div>
+
+  <div id="results" class="hidden">
+    <div class="report-toolbar no-print">
+      <button type="button" id="download-btn">Download Report (PDF)</button>
+    </div>
+
+    <h2 id="print-title" class="print-only">Sales Call Analysis Report</h2>
+    <p id="print-date" class="print-only"></p>
+
+    <div class="card">
+      <p class="section-title">Transcript <span id="transcript-provider"></span></p>
+      <div class="transcript-box" id="transcript"></div>
+    </div>
+
+    <div class="card">
+      <p class="section-title">English Translation</p>
+      <div class="transcript-box" id="translation"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-header-row">
+        <p class="section-title">Overall Assessment</p>
+        <span class="outcome-badge" id="call-outcome"></span>
+      </div>
+      <div id="overall"></div>
+    </div>
+
+    <div class="card">
+      <p class="section-title">Coaching Focus</p>
+      <div class="coaching-focus" id="coaching-focus"></div>
+    </div>
+
+    <div class="card">
+      <p class="section-title">Skill Breakdown</p>
+      <div id="sub-ratings"></div>
+    </div>
+
+    <div class="card">
+      <p class="section-title">Call Dynamics</p>
+      <div id="call-dynamics"></div>
+    </div>
+
+    <div class="card">
+      <p class="section-title">Key Signals</p>
+      <div id="key-signals"></div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <p class="section-title">Next Meeting Action Plan</p>
+        <ul class="plain" id="action-plan"></ul>
+      </div>
+      <div class="card">
+        <p class="section-title">Improvement Areas</p>
+        <ul class="plain" id="improvement-areas"></ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const form = document.getElementById('upload-form');
+const statusEl = document.getElementById('status');
+const submitBtn = document.getElementById('submit-btn');
+const resultsEl = document.getElementById('results');
+const downloadBtn = document.getElementById('download-btn');
+
+downloadBtn.addEventListener('click', () => window.print());
+
+function ratingBadge(rating) {
+  return `<span class="rating-badge r${rating}">${rating}/5</span>`;
+}
+
+function renderRatingRow(label, rating, text, evidence) {
+  return `
+    <div class="rating-row">
+      <div>
+        <div class="rating-label">${label}</div>
+        <div class="rating-comment">${text}</div>
+        ${evidence ? `<div class="evidence">"${evidence}"</div>` : ''}
+      </div>
+      ${ratingBadge(rating)}
+    </div>`;
+}
+
+function titleCase(key) {
+  return key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function renderChipList(items) {
+  if (!items || !items.length) return '<span class="empty-note">None noted</span>';
+  return `<div class="chip-row">${items.map(i => `<span class="chip">${i}</span>`).join('')}</div>`;
+}
+
+const PROVIDER_LABELS = { groq: 'via Groq (Whisper)', elevenlabs: 'via ElevenLabs (Scribe)' };
+
+function renderResults(data) {
+  document.getElementById('transcript').textContent = data.transcript.text;
+  document.getElementById('translation').textContent = data.translation;
+  document.getElementById('transcript-provider').textContent =
+    data.provider ? `(${PROVIDER_LABELS[data.provider] || data.provider})` : '';
+  document.getElementById('print-date').textContent =
+    'Generated ' + new Date().toLocaleString();
+
+  const ins = data.insights;
+
+  document.getElementById('call-outcome').textContent = titleCase(ins.call_outcome || 'unclear');
+
+  const overall = `
+    ${ins.overall_confidence ? renderRatingRow('Overall Confidence', ins.overall_confidence.rating, ins.overall_confidence.why) : ''}
+    ${renderRatingRow('Transcription Clarity', ins.transcription_clarity.rating,
+        ins.transcription_clarity.why + ' — ' + ins.transcription_clarity.confidence_impact)}
+    ${renderRatingRow('Sales Pitch Quality', ins.sales_pitch_quality.rating, ins.sales_pitch_quality.rationale, ins.sales_pitch_quality.evidence)}
+    ${renderRatingRow('Dealer Investment Rating', ins.dealer_investment_rating.rating, ins.dealer_investment_rating.rationale, ins.dealer_investment_rating.evidence)}
+  `;
+  document.getElementById('overall').innerHTML = overall;
+
+  document.getElementById('coaching-focus').textContent = ins.coaching_focus || 'Not specified.';
+
+  const subRows = Object.entries(ins.sub_ratings)
+    .map(([key, v]) => renderRatingRow(titleCase(key), v.rating, v.comment, v.evidence))
+    .join('');
+  document.getElementById('sub-ratings').innerHTML = subRows;
+
+  const dyn = ins.call_dynamics || {};
+  const sentiment = dyn.sentiment_trend || {};
+  document.getElementById('call-dynamics').innerHTML = `
+    <div class="dynamics-row">
+      <div class="dynamics-label">Talk Time Ratio</div>
+      <div>${dyn.talk_time_ratio || 'Unclear'}</div>
+    </div>
+    <div class="dynamics-row">
+      <div class="dynamics-label">Sentiment Trend</div>
+      <div class="sentiment-chips">
+        <div class="sentiment-chip"><strong>Opening</strong>${sentiment.opening || '—'}</div>
+        <div class="sentiment-chip"><strong>Middle</strong>${sentiment.middle || '—'}</div>
+        <div class="sentiment-chip"><strong>Close</strong>${sentiment.close || '—'}</div>
+      </div>
+    </div>
+    <div class="dynamics-row">
+      <div class="dynamics-label">Listening Quality</div>
+      <div>${dyn.listening_quality || 'Unclear'}</div>
+    </div>
+  `;
+
+  const pricing = ins.pricing_discussed || {};
+  document.getElementById('key-signals').innerHTML = `
+    <div class="signal-group">
+      <div class="signal-title">Objections Raised</div>
+      ${renderChipList(ins.objections_raised)}
+    </div>
+    <div class="signal-group">
+      <div class="signal-title">Pain Points Mentioned</div>
+      ${renderChipList(ins.pain_points_mentioned)}
+    </div>
+    <div class="signal-group">
+      <div class="signal-title">Competitor Mentions</div>
+      ${renderChipList(ins.competitor_mentions)}
+    </div>
+    <div class="signal-group">
+      <div class="signal-title">Pricing Discussed</div>
+      <div>${pricing.discussed ? (pricing.details || 'Yes') : 'Not discussed'}</div>
+    </div>
+    <div class="signal-group">
+      <div class="signal-title">Commitments Made</div>
+      ${renderChipList(ins.commitments_made)}
+    </div>
+  `;
+
+  document.getElementById('action-plan').innerHTML = ins.action_plan.map(item => `
+    <li>
+      <div class="action-item">
+        <span class="action-text">${item.action}</span>
+        <span class="tag tag-priority-${item.priority}">${item.priority}</span>
+        <span class="tag tag-owner">${item.owner}</span>
+      </div>
+    </li>`).join('');
+
+  document.getElementById('improvement-areas').innerHTML =
+    ins.improvement_areas.map(item => `<li>${item}</li>`).join('');
+
+  resultsEl.classList.remove('hidden');
+}
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fileInput = document.getElementById('audio-file');
+  if (!fileInput.files.length) return;
+
+  const provider = document.getElementById('provider').value;
+  const formData = new FormData();
+  formData.append('file', fileInput.files[0]);
+  formData.append('provider', provider);
+
+  submitBtn.disabled = true;
+  resultsEl.classList.add('hidden');
+  statusEl.className = 'status';
+  statusEl.innerHTML = '<span class="spinner"></span> Transcribing and analyzing — this can take up to a minute...';
+
+  try {
+    const res = await fetch('/api/analyze', { method: 'POST', body: formData });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Request failed');
+    statusEl.textContent = 'Done.';
+    renderResults(data);
+  } catch (err) {
+    statusEl.className = 'status error';
+    statusEl.textContent = 'Error: ' + err.message;
+  } finally {
+    submitBtn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
