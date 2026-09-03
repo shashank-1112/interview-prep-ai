@@ -1,0 +1,72 @@
+h2 {
+  font-size: 1.1rem;
+  margin: 1.5rem 0 0.75rem;
+}
+
+.overall-rating {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  background: #eef2ff;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.rating-number {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #4f46e5;
+}
+
+.rating-label {
+  color: #5f5f66;
+  font-size: 0.9rem;
+}
+
+.feedback-block {
+  padding: 1rem 0;
+  border-bottom: 1px solid #ececef;
+
+  &:last-of-type {
+    border-bottom: none;
+  }
+}
+
+.feedback-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.question-text {
+  font-weight: 500;
+  margin: 0;
+}
+
+.rating-badge {
+  flex-shrink: 0;
+  background: #f4f4f5;
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.feedback-text {
+  color: #3f3f46;
+  margin: 0.5rem 0 0;
+}
+
+.suggestions {
+  padding-left: 1.25rem;
+
+  li {
+    margin-bottom: 0.5rem;
+  }
+}
+
+.primary-button {
+  margin-top: 1.5rem;
+}

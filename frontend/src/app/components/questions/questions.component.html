@@ -1,0 +1,28 @@
+<div class="screen">
+  <div class="card wide">
+    <h1>Answer the Questions</h1>
+    <p class="subtitle">
+      Answer in your own words &mdash; it's fine to leave one blank if you want to skip it.
+    </p>
+
+    @for (question of questions; track question.id; let i = $index) {
+      <div class="question-block">
+        <div class="focus-tag">{{ question.focus_area }}</div>
+        <p class="question-text">{{ question.text }}</p>
+        <textarea rows="4" placeholder="Type your answer..." [formControl]="answersForm.at(i)"></textarea>
+      </div>
+    }
+
+    @if (errorMessage(); as error) {
+      <p class="error">{{ error }}</p>
+    }
+
+    <button class="primary-button" [disabled]="isLoading()" (click)="submitAnswers()">
+      @if (isLoading()) {
+        Grading your answers&hellip;
+      } @else {
+        Submit for Grading
+      }
+    </button>
+  </div>
+</div>

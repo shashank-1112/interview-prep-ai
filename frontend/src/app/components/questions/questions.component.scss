@@ -1,0 +1,42 @@
+.question-block {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid #ececef;
+
+  &:last-of-type {
+    border-bottom: none;
+  }
+}
+
+.focus-tag {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #4f46e5;
+  background: #eef2ff;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  margin-bottom: 0.5rem;
+}
+
+.question-text {
+  font-weight: 500;
+  margin: 0 0 0.75rem;
+}
+
+textarea {
+  width: 100%;
+  padding: 0.75rem;
+  font-family: inherit;
+  font-size: 0.95rem;
+  border: 1px solid #d4d4d8;
+  border-radius: 8px;
+  resize: vertical;
+
+  &:focus {
+    outline: none;
+    border-color: #4f46e5;
+  }
+}

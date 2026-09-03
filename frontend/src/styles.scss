@@ -1,0 +1,91 @@
+/* Global styles - kept deliberately minimal. Each component gets its own
+   .scss file (added as we build upload/questions/results in Stage 7) for
+   anything screen-specific; this file is just a light reset + base look. */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  background-color: #f7f7f8;
+  color: #1a1a1a;
+}
+
+h1 {
+  margin: 0 0 0.5rem;
+  font-size: 1.75rem;
+}
+
+/* Shared chrome for all three screens (upload/questions/results) - a
+   centered card on a light background. Screen-specific content styling
+   (e.g. the file-drop zone, the feedback list) lives in each component's
+   own .scss file instead. */
+
+.screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+}
+
+.card {
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.06);
+  padding: 2rem;
+  width: 100%;
+  max-width: 640px;
+
+  &.wide {
+    max-width: 760px;
+  }
+}
+
+.subtitle {
+  color: #5f5f66;
+  margin: 0 0 1.5rem;
+}
+
+.error {
+  background: #fdecea;
+  color: #b3261e;
+  border: 1px solid #f5c2c0;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin: 1rem 0;
+  font-size: 0.9rem;
+}
+
+.primary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #ffffff;
+  background-color: #4f46e5;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+
+  &:hover:not(:disabled) {
+    background-color: #4338ca;
+  }
+
+  &:disabled {
+    background-color: #c7c7cc;
+    cursor: not-allowed;
+  }
+}

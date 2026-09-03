@@ -1,0 +1,27 @@
+<div class="screen">
+  <div class="card">
+    <h1>InterviewPrep AI</h1>
+    <p class="subtitle">Upload your resume and get personalized interview questions.</p>
+
+    <label class="file-drop" for="resume-file">
+      <input id="resume-file" type="file" accept="application/pdf" (change)="onFileSelected($event)" />
+      @if (selectedFile(); as file) {
+        <span>{{ file.name }}</span>
+      } @else {
+        <span>Choose a PDF resume&hellip;</span>
+      }
+    </label>
+
+    @if (errorMessage(); as error) {
+      <p class="error">{{ error }}</p>
+    }
+
+    <button class="primary-button" [disabled]="!selectedFile() || isLoading()" (click)="startInterview()">
+      @if (isLoading()) {
+        Analyzing your resume&hellip;
+      } @else {
+        Start Interview
+      }
+    </button>
+  </div>
+</div>

@@ -1,0 +1,32 @@
+@if (result(); as r) {
+  <div class="screen">
+    <div class="card wide">
+      <h1>Your Results</h1>
+
+      <div class="overall-rating">
+        <span class="rating-number">{{ r.overall_rating }}/5</span>
+        <span class="rating-label">Overall Rating</span>
+      </div>
+
+      <h2>Per-Question Feedback</h2>
+      @for (item of r.per_question_feedback; track item.question_id) {
+        <div class="feedback-block">
+          <div class="feedback-header">
+            <p class="question-text">{{ item.question_text }}</p>
+            <span class="rating-badge">{{ item.rating }}/5</span>
+          </div>
+          <p class="feedback-text">{{ item.feedback }}</p>
+        </div>
+      }
+
+      <h2>Improvement Suggestions</h2>
+      <ul class="suggestions">
+        @for (suggestion of r.improvement_suggestions; track suggestion) {
+          <li>{{ suggestion }}</li>
+        }
+      </ul>
+
+      <button class="primary-button" (click)="startOver()">Start Over</button>
+    </div>
+  </div>
+}

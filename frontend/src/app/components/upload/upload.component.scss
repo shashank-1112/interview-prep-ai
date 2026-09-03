@@ -1,0 +1,22 @@
+.file-drop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed #c7c7cc;
+  border-radius: 8px;
+  padding: 2rem 1rem;
+  margin-bottom: 1rem;
+  cursor: pointer;
+  color: #5f5f66;
+  transition: border-color 0.15s ease;
+
+  &:hover {
+    border-color: #4f46e5;
+  }
+
+  input[type='file'] {
+    // Hidden - the whole label acts as the clickable control instead of
+    // the browser's default (small, inconsistently-styled) file button.
+    display: none;
+  }
+}
