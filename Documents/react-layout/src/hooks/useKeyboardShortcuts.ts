@@ -52,7 +52,9 @@ export function useKeyboardShortcuts(): void {
       const key = e.key.toLowerCase();
       const inEditor = s.editor.hangarId !== null;
 
-      // History & save work everywhere.
+      // History & save — undo/redo stay harmless even for sales_person (their undo stack can
+      // never hold a mutation they weren't allowed to make in the first place), but there's
+      // nothing for them to explicitly Save, so that one's gated below.
       if (mod && key === 'z') {
         e.preventDefault();
         if (e.shiftKey) redo();
@@ -64,12 +66,13 @@ export function useKeyboardShortcuts(): void {
         redo();
         return;
       }
-      if (mod && key === 's') {
+      if (s.canManageLayout && mod && key === 's') {
         e.preventDefault();
         void saveLayout();
         return;
       }
       if (!s.data) return;
+      const canManage = s.canManageLayout;
 
       if (e.key === '?' || (e.shiftKey && key === '/')) {
         e.preventDefault();
@@ -100,7 +103,7 @@ export function useKeyboardShortcuts(): void {
           else s.closeEditor();
           return;
         }
-        if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (canManage && (e.key === 'Delete' || e.key === 'Backspace')) {
           e.preventDefault();
           if (s.editor.annotationId !== null) deleteAnnotation(s.editor.annotationId);
           else if (s.editor.stallIds.size) deleteStalls(s.editor.stallIds);
@@ -111,12 +114,12 @@ export function useKeyboardShortcuts(): void {
           s.setEditorStalls(s.data.stalls.filter((x) => x.hangarId === hangarId).map((x) => x.id));
           return;
         }
-        if (mod && key === 'd') {
+        if (canManage && mod && key === 'd') {
           e.preventDefault();
           if (!e.repeat && !e.shiftKey && !e.altKey) duplicateSelection();
           return;
         }
-        if (e.key.startsWith('Arrow') && !mod) {
+        if (canManage && e.key.startsWith('Arrow') && !mod) {
           const [dx, dy] = arrowDelta(e, s.data.ground.gridSize);
           if (s.editor.stallIds.size) {
             e.preventDefault();
@@ -146,7 +149,7 @@ export function useKeyboardShortcuts(): void {
         else if (s.editMode) s.setEditMode(false);
         return;
       }
-      if ((e.key === 'Delete' || e.key === 'Backspace') && sel) {
+      if (canManage && (e.key === 'Delete' || e.key === 'Backspace') && sel) {
         e.preventDefault();
         if (sel.kind === 'hangar') deleteHangar(sel.id);
         else if (sel.kind === 'stall') deleteStalls([sel.id]);
@@ -158,7 +161,7 @@ export function useKeyboardShortcuts(): void {
         s.openEditor(sel.id);
         return;
       }
-      if (!mod && key === 'e') {
+      if (canManage && !mod && key === 'e') {
         e.preventDefault();
         s.setEditMode(!s.editMode);
         return;
@@ -168,13 +171,13 @@ export function useKeyboardShortcuts(): void {
         e.preventDefault();
         return;
       }
-      if (mod && key === 'd') {
+      if (canManage && mod && key === 'd') {
         e.preventDefault();
         if (sel?.kind === 'hangar' && !e.repeat && !e.shiftKey && !e.altKey) duplicateHangar(sel.id, true);
         return;
       }
       // Edit layout: arrows nudge the selected hangar / marker (same rules as dragging).
-      if (e.key.startsWith('Arrow') && !mod && s.editMode && sel && sel.kind !== 'stall') {
+      if (canManage && e.key.startsWith('Arrow') && !mod && s.editMode && sel && sel.kind !== 'stall') {
         e.preventDefault();
         const [dx, dy] = arrowDelta(e, s.data.ground.gridSize);
         if (sel.kind === 'hangar') {

@@ -33,6 +33,7 @@ export default function StallEditForm(props: Props) {
         status: stall.status,
         exhibitorName: stall.exhibitorName ?? '',
         cornerOrientation: stall.cornerOrientation ?? 'top-right',
+        isBillable: stall.isBillable ?? true,
         openSides: stall.openSides ?? [],
       };
     }
@@ -54,11 +55,18 @@ export default function StallEditForm(props: Props) {
       status: 'available',
       exhibitorName: '',
       cornerOrientation: 'top-right',
+      isBillable: true,
       openSides: [],
     };
   }, []);
 
-  const form = useForm<StallEditValues>({ resolver: zodResolver(stallEditSchema), defaultValues, mode: 'onTouched' });
+  // Third type param pinned explicitly: stallEditSchema's .superRefine() wrapper (schemas.ts)
+  // stops @hookform/resolvers' zodResolver from inferring a transformed-output type that
+  // collapses back to StallEditValues on its own, which otherwise leaks an unresolved
+  // generic into every other `UseFormReturn<StallEditValues>`-typed prop (fields.tsx) this
+  // form passes `form` into. Pre-existing library-version issue, unrelated to anything else
+  // in this file — isolated to this one call.
+  const form = useForm<StallEditValues, unknown, StallEditValues>({ resolver: zodResolver(stallEditSchema), defaultValues, mode: 'onTouched' });
   const status = useWatch({ control: form.control, name: 'status' });
   const stallType = useWatch({ control: form.control, name: 'stallType' });
   const openSides = useWatch({ control: form.control, name: 'openSides' }) ?? [];
@@ -105,7 +113,7 @@ export default function StallEditForm(props: Props) {
           <NumberField form={form} name="x" label="X" />
           <NumberField form={form} name="y" label="Y" />
           <NumberField form={form} name="width" label="Width" />
-          <NumberField form={form} name="height" label="Height" />
+          <NumberField form={form} name="height" label="Length" />
           <SectionTitle>Open sides</SectionTitle>
           <div className="col-span-full">
             <OpenSidesPicker state={sideStates([{ openSides }])} onToggle={toggleSide} caption="Select a side of the stall and mark it as an opening (drawn dotted) — e.g. the side facing the aisle." />
@@ -120,6 +128,10 @@ export default function StallEditForm(props: Props) {
             options={STALL_STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] }))}
             className="col-span-2"
           />
+          <label className="col-span-2 inline-flex items-center gap-1.5 self-end pb-2 text-sm text-slate-700">
+            <input type="checkbox" className="h-4 w-4 accent-blue-600" {...form.register('isBillable')} />
+            Billable
+          </label>
           {needsExhibitor && <TextField form={form} name="exhibitorName" label="Exhibitor name" className="col-span-full" />}
         </div>
       </form>

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { logout as apiLogout, refreshToken as apiRefreshToken } from './authApi';
 import { angularHomeUrl, angularLoginUrl, authConfig } from './config';
 import { applyHandoffFromLocation } from './handoff';
@@ -153,7 +153,12 @@ export function AuthGate({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  async function authorizedFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  // Stable identity (empty deps: only refs and useState setters are closed
+  // over, both guaranteed stable by React) — so anything that memoizes on
+  // authorizedFetch (e.g. ApiLayoutRepository construction) doesn't get
+  // rebuilt, and the planner doesn't get force-reloaded, on a background
+  // token refresh re-rendering AuthGate.
+  const authorizedFetch = useCallback(async (input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> => {
     const current = sessionRef.current;
     const withAuth = (token: string): RequestInit => {
       const headers = new Headers(init.headers);
@@ -181,9 +186,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
     sessionRef.current = refreshed;
     setSession(refreshed);
     return fetch(input, withAuth(refreshed.accessToken));
-  }
+  }, []);
 
-  function logout(): void {
+  const logout = useCallback((): void => {
     const current = sessionRef.current;
     clearStoredTokens();
 
@@ -196,7 +201,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     }
 
     window.location.replace(angularLoginUrl());
-  }
+  }, []);
 
   if (status !== 'ready' || !session) {
     return (

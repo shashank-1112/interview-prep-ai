@@ -1,4 +1,4 @@
-import { cornerShapePoints, findFreeSpot, findOverlappingIds, rectsOverlap, snap } from './geometry';
+import { cornerShapePoints, distanceToPolygonEdges, findFreeSpot, findOverlappingIds, isSelfIntersectingPolygon, pointInPolygon, rectsOverlap, snap } from './geometry';
 
 describe('geometry', () => {
   it('snaps to the grid without float noise', () => {
@@ -43,5 +43,29 @@ describe('geometry', () => {
       { id: 4, x: 2, y: 5, width: 3, height: 1 },
     ]);
     expect([...ids].sort()).toEqual([1, 2]);
+  });
+});
+
+describe('ground boundary polygon', () => {
+  const square = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
+  const bowtie = [{ x: 0, y: 0 }, { x: 10, y: 10 }, { x: 10, y: 0 }, { x: 0, y: 10 }];
+
+  it('passes a simple square and a triangle', () => {
+    expect(isSelfIntersectingPolygon(square)).toBe(false);
+    expect(isSelfIntersectingPolygon([{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 5, y: 10 }])).toBe(false);
+  });
+
+  it('flags a bowtie (edges crossing) as self-intersecting', () => {
+    expect(isSelfIntersectingPolygon(bowtie)).toBe(true);
+  });
+
+  it('point-in-polygon for a square', () => {
+    expect(pointInPolygon({ x: 5, y: 5 }, square)).toBe(true);
+    expect(pointInPolygon({ x: 15, y: 5 }, square)).toBe(false);
+  });
+
+  it('distance to the nearest edge of a square', () => {
+    expect(distanceToPolygonEdges({ x: 5, y: 2 }, square)).toBeCloseTo(2, 6);
+    expect(distanceToPolygonEdges({ x: 1, y: 1 }, square)).toBeCloseTo(1, 6);
   });
 });

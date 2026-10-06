@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
-import type { AnnotationType, StallLayoutData } from '../domain/types';
+import type { AnnotationType, LayoutConfigItem, LayoutEvent, StallLayoutData } from '../domain/types';
 import { EMPTY_FILTERS, type StallFilters } from '../domain/layoutOps';
 import type { LayoutRepository } from '../repository/LayoutRepository';
 import { emptyHistory, pushHistory, redoHistory, undoHistory, type History } from './history';
@@ -15,6 +15,7 @@ export interface EditorState {
 
 export type ModalState =
   | { kind: 'generateGround' }
+  | { kind: 'groundBoundary' }
   | { kind: 'addHangar' }
   | { kind: 'editHangar'; hangarId: number }
   | { kind: 'generateStalls'; hangarId: number | null }
@@ -42,15 +43,37 @@ export interface BulkState {
 
 export interface LayoutStoreState {
   repo: LayoutRepository | null;
+  /** The exhibition PlannerRoot's picker selected — set once via
+   *  setExhibitionMeta before init(), read by generateGroundLayout so the
+   *  Generate Ground form never has to ask for (or let anyone retype) the
+   *  exhibition's name/venue. */
+  exhibitionMeta: { name: string; venueName: string } | null;
+  /** Whether the current user may create/edit/delete ground/hangar/stall geometry — false for
+   *  sales_person (view + book/reserve only). Set once via setCanManageLayout before init(),
+   *  same as exhibitionMeta. Defaults true so repos/tests that never call it (localStorage,
+   *  memory, most of this app's own test suite) see the full, unrestricted UI they always
+   *  have. The backend enforces this independently (a disallowed call 403s) — this only hides
+   *  controls that would otherwise just fail. See src/auth/session.ts's canManageLayout. */
+  canManageLayout: boolean;
   loadState: 'loading' | 'ready';
   data: StallLayoutData | null;
   history: History<StallLayoutData | null>;
   saveStatus: SaveStatus;
   saveError: string | null;
+  /** Stall category/status/hangar-category config, fetched once via repo.getConfig() in
+   *  init(). Empty when the repo doesn't implement it (tests, localStorage/memory repos) or
+   *  the fetch hasn't resolved yet — every reader falls back to domain/constants.ts's
+   *  defaults in that case (see stallColorFor/stallStatusLabelFor). */
+  layoutConfig: LayoutConfigItem[];
+  /** Semantic actions (merge/split) queued since the last save, sent on the next one. See
+   *  domain/types.ts's LayoutEvent doc comment. */
+  pendingLayoutEvents: LayoutEvent[];
 
   editMode: boolean;
   /** Show side-length labels on the ground, hangars and stalls (per-viewer preference). */
   showDimensions: boolean;
+  /** Show CCTV/Fire Exit markers, inside hangars and at ground level (per-viewer preference) — see domain/site.ts's visibleAnnotations. */
+  showSafetyMarkers: boolean;
   groundSelection: GroundSelection;
   editor: EditorState;
   modal: ModalState | null;
@@ -63,7 +86,11 @@ export interface LayoutStoreState {
 
 export interface LayoutStoreActions {
   init(repo: LayoutRepository): Promise<void>;
+  setExhibitionMeta(meta: { name: string; venueName: string } | null): void;
+  setCanManageLayout(can: boolean): void;
   saveNow(): Promise<boolean>;
+  /** Queues a merge/split action to be sent with the next save. */
+  recordLayoutEvent(event: LayoutEvent): void;
   /** Apply an immutable mutation and push an undo snapshot. No-op if recipe returns the same object. */
   commit(recipe: (data: StallLayoutData) => StallLayoutData): void;
   /** Replace the whole layout (generate ground / clear / load demo) as one undoable step. */
@@ -73,6 +100,7 @@ export interface LayoutStoreActions {
 
   setEditMode(on: boolean): void;
   setShowDimensions(on: boolean): void;
+  setShowSafetyMarkers(on: boolean): void;
   selectGround(sel: GroundSelection): void;
   openEditor(hangarId: number): void;
   closeEditor(): void;
@@ -102,19 +130,30 @@ const EMPTY_SET: ReadonlySet<number> = new Set();
 
 const PREFS_KEY = 'gs_stall_layout_prefs';
 
-function readPrefs(): { showDimensions?: boolean } {
+interface Prefs {
+  showDimensions?: boolean;
+  showSafetyMarkers?: boolean;
+}
+
+function readPrefs(): Prefs {
   try {
     const p: unknown = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}');
-    const show = p && typeof p === 'object' ? (p as { showDimensions?: unknown }).showDimensions : undefined;
-    return typeof show === 'boolean' ? { showDimensions: show } : {};
+    if (!p || typeof p !== 'object') return {};
+    const { showDimensions, showSafetyMarkers } = p as Record<string, unknown>;
+    return {
+      ...(typeof showDimensions === 'boolean' ? { showDimensions } : {}),
+      ...(typeof showSafetyMarkers === 'boolean' ? { showSafetyMarkers } : {}),
+    };
   } catch {
     return {};
   }
 }
 
-function writePrefs(prefs: { showDimensions: boolean }): void {
+/** Merges into whatever's already stored — each caller passes only the one
+ *  flag it owns, so setting one preference never clobbers the other. */
+function writePrefs(patch: Prefs): void {
   try {
-    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ ...readPrefs(), ...patch }));
   } catch {
     /* storage unavailable — preference just won't persist */
   }
@@ -125,13 +164,18 @@ const initialEditor: EditorState = { hangarId: null, stallIds: EMPTY_SET, annota
 function initialState(): LayoutStoreState {
   return {
     repo: null,
+    exhibitionMeta: null,
+    canManageLayout: true,
     loadState: 'loading',
     data: null,
     history: emptyHistory(),
     saveStatus: 'idle',
     saveError: null,
+    layoutConfig: [],
+    pendingLayoutEvents: [],
     editMode: false,
     showDimensions: readPrefs().showDimensions ?? true,
+    showSafetyMarkers: readPrefs().showSafetyMarkers ?? true,
     groundSelection: null,
     editor: initialEditor,
     modal: null,
@@ -207,22 +251,54 @@ export const useLayoutStore = create<LayoutStore>()(
         saveStatus: result.source === 'migrated' ? 'saved' : 'idle',
         ...pruneSelections(get(), result.data),
       });
+      // Best-effort: a repo that doesn't implement getConfig() (or a failed fetch) just
+      // leaves layoutConfig empty, and every reader already falls back to the hardcoded
+      // defaults in domain/constants.ts — never block the layout itself on this.
+      try {
+        const config = await repo.getConfig?.();
+        if (config) set({ layoutConfig: config });
+      } catch {
+        /* config stays empty; callers fall back to defaults */
+      }
+    },
+
+    setExhibitionMeta(meta) {
+      set({ exhibitionMeta: meta });
+    },
+
+    setCanManageLayout(can) {
+      set({ canManageLayout: can });
     },
 
     async saveNow() {
-      const { repo, data } = get();
+      const { repo, data, pendingLayoutEvents } = get();
       if (!repo) return false;
       set({ saveStatus: 'saving' });
       try {
-        if (data) await repo.save(data);
+        let canonical: StallLayoutData | void = undefined;
+        if (data) canonical = await repo.save(data, pendingLayoutEvents);
         else await repo.reset();
-        // Only mark saved if nothing changed while the save was in flight.
-        if (get().data === data) set({ saveStatus: 'saved', saveError: null });
+        // Only apply anything if nothing changed while the save was in flight —
+        // a newer edit already in progress must win over a stale response.
+        if (get().data === data) {
+          // A repository (e.g. ApiLayoutRepository) may hand back the
+          // canonical saved copy — real ids in place of anything sent as new.
+          // Adopted directly into `data`, not through commit/pushHistory: this
+          // is a save-driven correction, not a user edit, so it's not a new
+          // undo step.
+          // The events just sent are cleared the same way — `get().data === data`
+          // means no new commit (and so no new recordLayoutEvent) happened mid-flight.
+          set({ data: canonical ?? get().data, saveStatus: 'saved', saveError: null, pendingLayoutEvents: [] });
+        }
         return true;
       } catch (err) {
         set({ saveStatus: 'error', saveError: (err as Error).message });
         return false;
       }
+    },
+
+    recordLayoutEvent(event) {
+      set((s) => ({ pendingLayoutEvents: [...s.pendingLayoutEvents, event] }));
     },
 
     commit(recipe) {
@@ -272,6 +348,10 @@ export const useLayoutStore = create<LayoutStore>()(
     setShowDimensions(on) {
       set({ showDimensions: on });
       writePrefs({ showDimensions: on });
+    },
+    setShowSafetyMarkers(on) {
+      set({ showSafetyMarkers: on });
+      writePrefs({ showSafetyMarkers: on });
     },
     selectGround(sel) {
       set({ groundSelection: sel, sidebarTab: sel ? 'details' : get().sidebarTab });

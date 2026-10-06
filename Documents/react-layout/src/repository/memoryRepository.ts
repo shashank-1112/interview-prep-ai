@@ -16,6 +16,7 @@ export class MemoryLayoutRepository implements LayoutRepository {
   }
 
   async save(data: StallLayoutData): Promise<void> {
+    // Second `events` param intentionally unused — this repo has no audit trail to send them to.
     this.saved = structuredClone(data);
     this.saveCount++;
   }

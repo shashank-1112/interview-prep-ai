@@ -61,11 +61,14 @@ export function hangarLetter(i: number): string {
   return s;
 }
 
-export function generateGround(f: GenerateGroundForm): Result<StallLayoutData> {
+/** exhibition comes from the picker (PlannerRoot sets it on the store once,
+ *  at selection time), never from this form — see GenerateGroundForm's doc
+ *  comment in domain/types.ts. */
+export function generateGround(f: GenerateGroundForm, exhibition: { name: string; venueName: string }): Result<StallLayoutData> {
   const ground: ExhibitionGround = {
     id: 1,
-    exhibitionName: f.exhibitionName.trim(),
-    venueName: f.venueName.trim(),
+    exhibitionName: exhibition.name.trim(),
+    venueName: exhibition.venueName.trim(),
     unit: f.unit,
     width: f.width,
     height: f.height,
@@ -422,6 +425,7 @@ export function generateStalls(
       finalPrice: f.basePrice,
       status: 'available',
       exhibitorName: null,
+      isBillable: f.isBillable,
     };
     if (f.stallType === 'Corner') stall.cornerOrientation = f.cornerOrientation;
     if (p.openSides.length) stall.openSides = [...p.openSides];
@@ -593,6 +597,7 @@ export function mergeStalls(stalls: readonly Stall[], c: MergeCandidate): Result
     finalPrice: a.finalPrice + b.finalPrice,
     status: 'available',
     exhibitorName: null,
+    isBillable: a.isBillable ?? true,
   };
   if (a.cornerOrientation) merged.cornerOrientation = a.cornerOrientation;
   const open = mergedOpenSides(a, b, axis);
@@ -669,6 +674,7 @@ export function splitStall(
     stallType: stall.stallType,
     status: 'available' as StallStatus,
     exhibitorName: null,
+    isBillable: stall.isBillable ?? true,
     ...(stall.cornerOrientation ? { cornerOrientation: stall.cornerOrientation } : {}),
   };
   const firstRect: Rect =
@@ -821,7 +827,7 @@ export function applyBulk(stalls: readonly Stall[], ids: ReadonlySet<number>, ac
 }
 
 export function statusCounts(stalls: readonly Stall[]): Record<StallStatus, number> {
-  const c: Record<StallStatus, number> = { available: 0, reserved: 0, booked: 0, blocked: 0 };
+  const c: Record<StallStatus, number> = { available: 0, reserved: 0, booked: 0, allocated: 0, blocked: 0 };
   for (const s of stalls) c[s.status]++;
   return c;
 }

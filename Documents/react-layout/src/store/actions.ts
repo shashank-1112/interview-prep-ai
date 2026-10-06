@@ -28,7 +28,7 @@ import {
 } from '../domain/layoutOps';
 import { applyBookingAction, BOOKING_ACTIONS, type BookingAction } from '../domain/booking';
 import type { GenerateStallsInput } from '../domain/stallLayout';
-import { clamp, clean, findFreeSpot, nextId, rectsOverlap } from '../domain/geometry';
+import { clamp, clean, findFreeSpot, isSelfIntersectingPolygon, nextId, rectsOverlap } from '../domain/geometry';
 import { annotationMeta, STATUS_LABELS } from '../domain/constants';
 import {
   atGap,
@@ -51,12 +51,14 @@ import type {
   GenerateStallsForm,
   Hangar,
   LayoutAnnotation,
+  Point,
   Rect,
   RectSide,
   Stall,
   StallEditForm,
   StallLayoutData,
 } from '../domain/types';
+import type { AssignableBooking } from '../repository/LayoutRepository';
 import { useLayoutStore } from './layoutStore';
 
 const store = () => useLayoutStore.getState();
@@ -114,9 +116,9 @@ export function loadDemoLayout(): void {
 
 /** Returns an error message for the form, or null on success. */
 export function generateGroundLayout(form: GenerateGroundForm): string | null {
-  const r = generateGround(form);
-  if (!r.ok) return r.error;
   const s = store();
+  const r = generateGround(form, s.exhibitionMeta ?? { name: '', venueName: '' });
+  if (!r.ok) return r.error;
   s.replaceLayout(r.value);
   s.selectGround(r.value.hangars[0] ? { kind: 'hangar', id: r.value.hangars[0].id } : null);
   s.requestFit('ground', 'content');
@@ -280,6 +282,7 @@ function stallFromForm(base: Partial<Stall> & { id: number; hangarId: number }, 
     basePrice: f.basePrice,
     finalPrice: f.finalPrice,
     status: f.status,
+    isBillable: f.isBillable,
     exhibitorName: f.status === 'reserved' || f.status === 'booked' ? f.exhibitorName.trim() || null : null,
   };
   if (f.stallType === 'Corner') stall.cornerOrientation = f.cornerOrientation;
@@ -438,6 +441,7 @@ export function mergeSelection(): void {
       }
       store().commit((c) => ({ ...c, stalls: r.value.stalls }));
       store().setEditorStalls([r.value.merged.id]);
+      store().recordLayoutEvent({ type: 'merge', sourceStallLabels: [candidate.a.stallNo, candidate.b.stallNo], resultStallLabels: [r.value.merged.stallNo] });
       toast.success(`Merged into stall ${r.value.merged.stallNo}.`);
     },
     'primary',
@@ -472,6 +476,7 @@ export function splitSelection(axis: 'h' | 'v'): void {
       }
       store().commit((c) => ({ ...c, stalls: r.value.stalls }));
       store().setEditorStalls([r.value.first.id, r.value.second.id]);
+      store().recordLayoutEvent({ type: 'split', sourceStallLabels: [stall.stallNo], resultStallLabels: [r.value.first.stallNo, r.value.second.stallNo] });
       toast.success(`Stall ${stall.stallNo} split into ${r.value.first.stallNo} and ${r.value.second.stallNo}.`);
     },
     'primary',
@@ -499,14 +504,76 @@ function commitBooking(stallId: number, action: BookingAction, exhibitorName?: s
 /**
  * Reserve/Book are confirmed by the inline exhibitor-name form (as in the
  * original app); every other transition goes through the confirm dialog.
+ *
+ * Cancelling a stall that's actually linked to a real booking
+ * (stall.stallBookingId set, repo API-backed) goes through unassignRealBooking
+ * instead of the plain local edit below it — otherwise the booking would stay
+ * marked as "linked" server-side and never show up as assignable again.
  */
 export function runBookingAction(stallId: number, action: BookingAction, exhibitorName?: string): boolean {
   const meta = BOOKING_ACTIONS[action];
   if (meta.needsExhibitor) return commitBooking(stallId, action, exhibitorName);
   const stall = data()?.stalls.find((s) => s.id === stallId);
   if (!stall) return false;
-  confirm(meta.confirmTitle, meta.confirmMessage(stall), () => void commitBooking(stallId, action), meta.tone === 'danger' ? 'danger' : 'primary', meta.label);
+  const isCancel = action === 'cancel-reservation' || action === 'cancel-booking';
+  const useRealUnassign = isCancel && stall.stallBookingId != null && !!store().repo?.unassignStall;
+  confirm(
+    meta.confirmTitle,
+    meta.confirmMessage(stall),
+    () => {
+      if (useRealUnassign) void unassignRealBooking(stallId, meta.successMessage(stall));
+      else void commitBooking(stallId, action);
+    },
+    meta.tone === 'danger' ? 'danger' : 'primary',
+    meta.label,
+  );
   return true;
+}
+
+// ── Real booking assignment (only when the repository is API-backed) ───────
+
+/** True only for a repository backed by the real Booking module — gates QuickActions' assign-dropdown vs. the free-text form. */
+export function canAssignRealBookings(): boolean {
+  return typeof store().repo?.assignStall === 'function';
+}
+
+export async function fetchAssignableBookings(): Promise<AssignableBooking[]> {
+  const repo = store().repo;
+  if (!repo?.getAssignableBookings) return [];
+  return repo.getAssignableBookings();
+}
+
+function applyAssignedStall(updated: Stall): void {
+  store().commit((c) => ({ ...c, stalls: c.stalls.map((s) => (s.id === updated.id ? updated : s)) }));
+}
+
+/** The only entry point into 'reserved'/'booked' when the repository is API-backed — see QuickActions' assign dropdown. */
+export async function assignStallToBooking(stallId: number, stallBookingId: number): Promise<boolean> {
+  const repo = store().repo;
+  const stall = data()?.stalls.find((s) => s.id === stallId);
+  if (!repo?.assignStall || !stall) return false;
+  try {
+    const updated = await repo.assignStall(stallId, stallBookingId);
+    applyAssignedStall(updated);
+    toast.success(`Stall ${stall.stallNo} ${updated.status === 'booked' ? 'booked' : 'reserved'} for ${updated.exhibitorName ?? 'the exhibitor'}.`);
+    return true;
+  } catch (err) {
+    toast.error((err as Error).message);
+    return false;
+  }
+}
+
+async function unassignRealBooking(stallId: number, successMessage: string): Promise<boolean> {
+  const repo = store().repo;
+  if (!repo?.unassignStall) return false;
+  try {
+    applyAssignedStall(await repo.unassignStall(stallId));
+    toast.success(successMessage);
+    return true;
+  } catch (err) {
+    toast.error((err as Error).message);
+    return false;
+  }
 }
 
 // ── Bulk ─────────────────────────────────────────────────────────────────────
@@ -764,6 +831,27 @@ export function setAnnotationRect(id: number, rect: Rect): boolean {
   }
   store().commit((cur) => ({ ...cur, annotations: cur.annotations.map((x) => (x.id === id ? { ...x, ...rect } : x)) }));
   return true;
+}
+
+// ── Ground boundary / setback ────────────────────────────────────────────────
+
+/**
+ * `points === null` (or fewer than 3) reverts to the plain width×height rectangle.
+ * Returns an error message and makes no change if the polygon is invalid; null on success.
+ * See domain/site.ts's activeBoundary/setbackViolation and LAYOUT_PHASE1_DECISIONS.md item 2.
+ */
+export function setGroundBoundary(points: Point[] | null, setbackDistance: number): string | null {
+  const d = data();
+  if (!d) return 'No layout to update.';
+  const boundary = points && points.length >= 3 ? points : undefined;
+  if (points && points.length > 0 && points.length < 3) {
+    return 'A custom boundary needs at least 3 points.';
+  }
+  if (boundary && isSelfIntersectingPolygon(boundary)) {
+    return 'The boundary is self-intersecting — its edges cross each other.';
+  }
+  store().commit((cur) => ({ ...cur, ground: { ...cur.ground, boundary, setbackDistance: setbackDistance || undefined } }));
+  return null;
 }
 
 export function deleteAnnotation(id: number): void {

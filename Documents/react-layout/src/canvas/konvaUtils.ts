@@ -27,6 +27,57 @@ export function smartCache(node: Konva.Node | null | undefined, zoom: number): v
   node.cache({ pixelRatio: Math.min(wanted, allowed), offset: 2 });
 }
 
+// ── Staggered caching for many-hangar grounds ────────────────────────────────
+//
+// A ground with dozens of hangars mounts all of them in the same React commit, and each one's
+// smartCache does real rasterization work (proportional to its stall count, not its final
+// pixel size — see smartCache's own doc comment). Calling it directly from every hangar's
+// mount effect, as HangarEditorStage's single StaticStalls layer does, blocks the main thread
+// for all of them before the browser can paint anything. See LAYOUT_PHASE1_DECISIONS.md item 6
+// — queuing instead spreads that same work across idle slices, so the ground becomes visible
+// and interactive almost immediately, with hangars caching in behind it one by one.
+interface CacheJob {
+  node: Konva.Node;
+  zoom: number;
+}
+let cacheQueue: CacheJob[] = [];
+let cacheQueueScheduled = false;
+
+function runCacheQueue(deadline?: { timeRemaining(): number }): void {
+  const hasTime = () => !deadline || deadline.timeRemaining() > 0;
+  while (cacheQueue.length > 0 && hasTime()) {
+    const job = cacheQueue.shift()!;
+    smartCache(job.node, job.zoom);
+    job.node.getLayer()?.batchDraw();
+  }
+  if (cacheQueue.length > 0) {
+    scheduleCacheQueueRun();
+  } else {
+    cacheQueueScheduled = false;
+  }
+}
+
+function scheduleCacheQueueRun(): void {
+  if (cacheQueueScheduled) return;
+  cacheQueueScheduled = true;
+  const ric = (typeof window !== 'undefined' ? (window as unknown as { requestIdleCallback?: (cb: (d: { timeRemaining(): number }) => void) => void }).requestIdleCallback : undefined);
+  if (ric) ric(runCacheQueue);
+  else setTimeout(() => runCacheQueue(), 0);
+}
+
+/**
+ * Queues a smartCache call instead of running it synchronously — use this (instead of
+ * smartCache directly) anywhere many instances can mount/update in the same commit, e.g. the
+ * ground view's one-cache-per-hangar. A node already queued is re-queued at the end rather than
+ * duplicated, so rapid updates (zoom settling) don't pile up redundant work.
+ */
+export function scheduleSmartCache(node: Konva.Node | null | undefined, zoom: number): void {
+  if (!node) return;
+  cacheQueue = cacheQueue.filter((j) => j.node !== node);
+  cacheQueue.push({ node, zoom });
+  scheduleCacheQueueRun();
+}
+
 /** Absolute (screen) box → world-space box, using the stage transform. */
 function absToWorld(stage: Konva.Stage, b: Box): Box {
   const s = stage.scaleX();

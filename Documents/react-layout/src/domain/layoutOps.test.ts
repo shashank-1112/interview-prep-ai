@@ -19,9 +19,9 @@ import {
 } from './layoutOps';
 import type { GenerateGroundForm, GenerateStallsForm, Stall } from './types';
 
+const testExhibition = { name: 'Expo', venueName: 'Venue' };
+
 const groundForm: GenerateGroundForm = {
-  exhibitionName: 'Expo',
-  venueName: 'Venue',
   unit: 'meter',
   width: 60,
   height: 40,
@@ -52,6 +52,7 @@ const stallsForm = (over: Partial<GenerateStallsForm> = {}): GenerateStallsForm 
   stallType: 'Standard',
   basePrice: 1000,
   cornerOrientation: 'top-right',
+  isBillable: true,
   ...over,
 });
 
@@ -75,9 +76,11 @@ const mk = (over: Partial<Stall>): Stall => ({
 
 describe('generateGround', () => {
   it('places hangars in a grid with letters and codes', () => {
-    const r = generateGround(groundForm);
+    const r = generateGround(groundForm, testExhibition);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
+    expect(r.value.ground.exhibitionName).toBe('Expo');
+    expect(r.value.ground.venueName).toBe('Venue');
     expect(r.value.hangars.map((h) => [h.name, h.code, h.x, h.y])).toEqual([
       ['Hangar A', 'H-A', 2, 2],
       ['Hangar B', 'H-B', 24, 2],
@@ -87,14 +90,14 @@ describe('generateGround', () => {
   });
 
   it('rejects hangars that exceed the ground', () => {
-    const r = generateGround({ ...groundForm, numHangars: 6 });
+    const r = generateGround({ ...groundForm, numHangars: 6 }, testExhibition);
     expect(r).toMatchObject({ ok: false, error: expect.stringContaining('Hangar 5 would exceed') });
   });
 
   it('rejects overlapping hangars (negative effective gap)', () => {
-    const r = generateGround({ ...groundForm, hangarWidth: 10, gap: 0, numHangars: 2, hangarsPerRow: 2, startX: 0 });
+    const r = generateGround({ ...groundForm, hangarWidth: 10, gap: 0, numHangars: 2, hangarsPerRow: 2, startX: 0 }, testExhibition);
     expect(r.ok).toBe(true);
-    const bad = generateGround({ ...groundForm, width: 100, hangarWidth: 10, gap: -5 as number, numHangars: 2 });
+    const bad = generateGround({ ...groundForm, width: 100, hangarWidth: 10, gap: -5 as number, numHangars: 2 }, testExhibition);
     expect(bad.ok).toBe(false);
   });
 

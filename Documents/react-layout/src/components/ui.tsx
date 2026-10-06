@@ -263,6 +263,7 @@ const BADGE: Record<StallStatus, string> = {
   available: 'bg-green-100 text-green-800 ring-green-600/20',
   reserved: 'bg-amber-100 text-amber-800 ring-amber-600/20',
   booked: 'bg-red-100 text-red-800 ring-red-600/20',
+  allocated: 'bg-violet-100 text-violet-800 ring-violet-600/20',
   blocked: 'bg-slate-100 text-slate-700 ring-slate-500/20',
 };
 

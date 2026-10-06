@@ -1,4 +1,5 @@
 import {
+  activeBoundary,
   allowedAnnotationTypes,
   atGap,
   gapFromGround,
@@ -13,6 +14,7 @@ import {
   parkingCapacity,
   placeBesideGround,
   placementRule,
+  setbackViolation,
   siteBounds,
   siteMargin,
   validateGroundAnnotationRect,
@@ -207,5 +209,37 @@ describe('gap helpers & reach', () => {
       annot({ id: 4, type: 'ticketing', x: -3, y: 19, width: 3, height: 2 }),
     ];
     expect(outsideReach(items, g, 1)).toEqual({ top: 18, bottom: 0, left: 3, right: 0 });
+  });
+});
+
+describe('ground boundary and setback', () => {
+  it('falls back to the rectangle corners when no custom boundary is set', () => {
+    expect(activeBoundary(g)).toEqual([
+      { x: 0, y: 0 },
+      { x: 60, y: 0 },
+      { x: 60, y: 40 },
+      { x: 0, y: 40 },
+    ]);
+  });
+
+  it('uses the custom boundary when one is set', () => {
+    const boundary = [{ x: 0, y: 0 }, { x: 60, y: 0 }, { x: 30, y: 40 }];
+    expect(activeBoundary({ ...g, boundary })).toBe(boundary);
+  });
+
+  it('ignores a boundary with fewer than 3 points', () => {
+    expect(activeBoundary({ ...g, boundary: [{ x: 0, y: 0 }] })).toHaveLength(4);
+  });
+
+  it('setback: no violation when setbackDistance is unset or zero', () => {
+    const hugsEdge = { x: 0, y: 0, width: 5, height: 5 };
+    expect(setbackViolation(hugsEdge, g)).toBe(false);
+    expect(setbackViolation(hugsEdge, { ...g, setbackDistance: 0 })).toBe(false);
+  });
+
+  it('setback: flags a hangar too close to the boundary, not one safely inside', () => {
+    const gWithSetback = { ...g, setbackDistance: 3 };
+    expect(setbackViolation({ x: 0, y: 0, width: 5, height: 5 }, gWithSetback)).toBe(true);
+    expect(setbackViolation({ x: 10, y: 10, width: 5, height: 5 }, gWithSetback)).toBe(false);
   });
 });

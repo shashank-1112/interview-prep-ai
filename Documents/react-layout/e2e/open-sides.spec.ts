@@ -10,7 +10,7 @@ test('generates stalls along the walls with an island, open sides drawn dotted',
   // An empty hangar to fill.
   await page.getByRole('button', { name: 'Hangar', exact: true }).click();
   const hd = page.getByRole('dialog', { name: 'Add Hangar' });
-  for (const [label, value] of [['Name', 'Hangar D'], ['Code', 'H-D'], ['X (m)', '28'], ['Y (m)', '18'], ['Width (m)', '24'], ['Height (m)', '20']]) {
+  for (const [label, value] of [['Name', 'Hangar D'], ['Code', 'H-D'], ['X (m)', '28'], ['Y (m)', '18'], ['Width (m)', '24'], ['Length (m)', '20']]) {
     await hd.getByLabel(label!, { exact: true }).fill(value!);
   }
   await hd.getByRole('button', { name: 'Add hangar' }).click();

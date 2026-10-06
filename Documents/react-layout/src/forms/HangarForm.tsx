@@ -63,7 +63,7 @@ export default function HangarForm({ hangarId, onClose }: { hangarId: number | n
           <NumberField form={form} name="x" label={`X (${unit})`} />
           <NumberField form={form} name="y" label={`Y (${unit})`} />
           <NumberField form={form} name="width" label={`Width (${unit})`} />
-          <NumberField form={form} name="height" label={`Height (${unit})`} />
+          <NumberField form={form} name="height" label={`Length (${unit})`} />
         </div>
       </form>
     </Modal>

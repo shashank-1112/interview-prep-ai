@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { boot, drag, nodeBox, onGrid, pxPerUnit, state } from './helpers';
+import { boot, drag, getLastPutBody, nodeBox, onGrid, pxPerUnit, state } from './helpers';
 
 test.beforeEach(async ({ page }) => {
   await boot(page);
@@ -64,49 +64,39 @@ test('resizes a hangar with the Transformer, snapped and clamped to its contents
   expect(shrunk.height).toBeGreaterThanOrEqual(10.5);
 });
 
-test('persists changes to localStorage and reloads them', async ({ page }) => {
+test('persists changes through the layout API and reloads them', async ({ page }) => {
   await page.getByRole('button', { name: 'Edit layout' }).click();
   const frame = await nodeBox(page, 'ground', '#hangar-3 .hangar-frame');
   const ppu = await pxPerUnit(page, 'ground');
   const from = { x: frame.x + frame.width / 2, y: frame.y + frame.height - 20 };
   await drag(page, from, { x: from.x, y: from.y + 4 * ppu });
   await expect(page.getByTestId('save-status')).toHaveText('Saved');
-  const raw = await page.evaluate(() => localStorage.getItem('gs_stall_layout_v3'));
-  expect(JSON.parse(raw!).hangars.find((h: { id: number }) => h.id === 3).y).toBe(6);
+  const saved = getLastPutBody(page) as { hangars: Array<{ id: number; y: number }> };
+  expect(saved.hangars.find((h) => h.id === 3)?.y).toBe(6);
   await page.reload();
   await page.waitForFunction(() => window.__layoutTest__?.getState().loadState === 'ready');
   expect(await state(page, (s) => s.data!.hangars.find((x) => x.id === 3)!.y)).toBe(6);
 });
 
-test('migrates a v2 layout (no annotations) on load', async ({ page }) => {
-  await page.evaluate(() => {
-    localStorage.clear();
-    localStorage.setItem(
-      'gs_stall_layout_v2',
-      JSON.stringify({
-        ground: { id: 1, exhibitionName: 'Legacy Expo', venueName: 'Old Hall', unit: 'meter', width: 30, height: 20, gridSize: 0.5 },
-        hangars: [{ id: 1, name: 'Hall 1', code: 'H-1', x: 1, y: 1, width: 10, height: 8 }],
-        stalls: [],
-      }),
-    );
-  });
-  await page.reload();
-  await expect(page.getByRole('heading', { name: 'Legacy Expo', level: 1 })).toBeVisible();
-  const v3 = await page.evaluate(() => JSON.parse(localStorage.getItem('gs_stall_layout_v3')!));
-  expect(v3.annotations).toEqual([]);
-});
+// v2 -> v3 localStorage migration is LocalStorageLayoutRepository-specific —
+// no longer the default repository (see src/main.tsx / PlannerRoot), and
+// already covered thoroughly at the unit level in
+// src/repository/localStorageRepository.test.ts. Nothing to re-test here.
 
-test('generates a new ground from the form', async ({ page }) => {
+test('generates a new ground from the form, taking the exhibition name/venue from the picker, not the form', async ({ page }) => {
   await page.getByRole('button', { name: 'Generate ground' }).click();
   const dialog = page.getByRole('dialog', { name: 'Generate Ground' });
-  await dialog.getByLabel('Exhibition name').fill('Auto Expo');
-  await dialog.getByLabel('Venue').fill('Hall 9');
+  // No exhibition name/venue fields — GenerateGroundForm doesn't ask, they're
+  // fixed by whichever exhibition PlannerRoot's picker selected (here, the
+  // demo seed's own exhibition, since boot()'s default initialLayout is it).
+  await expect(dialog.getByText('India Industrial Expo 2025')).toBeVisible();
   await dialog.getByLabel('Number of hangars').fill('4');
   await dialog.getByRole('button', { name: 'Auto-fit size' }).click();
   await dialog.getByRole('button', { name: 'Generate' }).click();
   await expect(dialog).toBeHidden();
   const d = await state(page, (s) => s.data!);
-  expect(d.ground.exhibitionName).toBe('Auto Expo');
+  expect(d.ground.exhibitionName).toBe('India Industrial Expo 2025');
+  expect(d.ground.venueName).toBe('Bombay Exhibition Centre');
   expect(d.hangars.map((h) => h.name)).toEqual(['Hangar A', 'Hangar B', 'Hangar C', 'Hangar D']);
   expect(d.stalls).toHaveLength(0);
 });

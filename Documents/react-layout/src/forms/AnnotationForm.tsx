@@ -307,7 +307,7 @@ export default function AnnotationForm({
           <NumberField
             form={form}
             name="height"
-            label={isRoad && groundScope ? `Road width (${unit})` : `Height (${unit})`}
+            label={isRoad && groundScope ? `Road width (${unit})` : `Length (${unit})`}
             onValueChange={() => (sizeTouched.current = true)}
             hint={capacity !== null ? `≈ ${capacity} car${capacity === 1 ? '' : 's'} (25 m² per car incl. aisles)` : undefined}
           />

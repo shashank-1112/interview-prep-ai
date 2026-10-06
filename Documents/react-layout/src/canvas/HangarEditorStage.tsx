@@ -5,7 +5,7 @@ import { Group, Layer, Rect, Stage, Transformer } from 'react-konva';
 import { boundingBox, clamp, clean, findOverlappingIds, normalizeRect, rectsIntersect, snap } from '../domain/geometry';
 import { UNIT_LABELS } from '../domain/constants';
 import { minSizeFor } from '../domain/layoutOps';
-import { formatLength } from '../domain/site';
+import { formatLength, visibleAnnotations } from '../domain/site';
 import type { Hangar, LayoutAnnotation, Rect as RectT, Stall } from '../domain/types';
 import { useElementSize } from '../hooks/useElementSize';
 import { useZoomPan } from '../hooks/useZoomPan';
@@ -74,7 +74,9 @@ export interface HangarEditorStageProps {
 
 export function HangarEditorStage({ hangar, stalls, annotations, panMode }: HangarEditorStageProps) {
   const ground = useLayoutStore((s) => s.data!.ground);
+  const canManage = useLayoutStore((s) => s.canManageLayout);
   const showDimensions = useLayoutStore((s) => s.showDimensions);
+  const showSafetyMarkers = useLayoutStore((s) => s.showSafetyMarkers);
   const selectedIds = useLayoutStore((s) => s.editor.stallIds);
   const selectedAnnotId = useLayoutStore((s) => s.editor.annotationId);
   const fitRequest = useLayoutStore((s) => s.fitRequest);
@@ -114,6 +116,11 @@ export function HangarEditorStage({ hangar, stalls, annotations, panMode }: Hang
     for (const s of stalls) (selectedIds.has(s.id) ? ac : st).push(s);
     return [st, ac];
   }, [stalls, selectedIds]);
+
+  // For rendering only — `annotations` itself stays unfiltered since it also
+  // feeds fit-to-content bounds (below) and the selection lookup; hiding a
+  // marker must never change those.
+  const visibleAnnots = useMemo(() => visibleAnnotations(annotations, showSafetyMarkers), [annotations, showSafetyMarkers]);
 
   // ── Viewport ──
   const fitGround = useCallback(() => zp.fitRect({ x: 0, y: 0, width: hw, height: hh }, 40), [zp, hw, hh]);
@@ -217,10 +224,13 @@ export function HangarEditorStage({ hangar, stalls, annotations, panMode }: Hang
         toggleEditorStall(s.id);
         return;
       }
-      pendingDrag.current = s.id;
+      // Select, but don't arm the select-and-drag hand-off (registerActive's node.startDrag()
+      // call below) — that call forces a Konva drag regardless of the node's own `draggable`
+      // prop, so it has to be gated here instead of (just) on the prop. See canManage.
+      if (canManage) pendingDrag.current = s.id;
       setEditorStalls([s.id]);
     },
-    [panning, setEditorStalls, toggleEditorStall],
+    [canManage, panning, setEditorStalls, toggleEditorStall],
   );
 
   const onActivePointerDown = useCallback(
@@ -521,12 +531,12 @@ export function HangarEditorStage({ hangar, stalls, annotations, panMode }: Hang
           )}
         </Layer>
         <Layer>
-          {annotations.map((a) => (
+          {visibleAnnots.map((a) => (
             <AnnotationShape
               key={a.id}
               annotation={a}
               selected={a.id === selectedAnnotId}
-              draggable={!panning}
+              draggable={!panning && canManage}
               unit={ground.unit}
               showDimensions={showDimensions}
               nodeRef={registerAnnot}
@@ -555,7 +565,7 @@ export function HangarEditorStage({ hangar, stalls, annotations, panMode }: Hang
               selected
               overlapping={overlapping.has(s.id)}
               dimUnit={dimUnit}
-              draggable={!panning}
+              draggable={!panning && canManage}
               nodeRef={registerActive}
               onPointerDown={onActivePointerDown}
               onClick={onActiveClick}
@@ -568,7 +578,7 @@ export function HangarEditorStage({ hangar, stalls, annotations, panMode }: Hang
           <Transformer
             ref={trRef}
             {...TRANSFORMER_STYLE}
-            enabledAnchors={[...TRANSFORMER_STYLE.enabledAnchors]}
+            enabledAnchors={canManage ? [...TRANSFORMER_STYLE.enabledAnchors] : []}
             boundBoxFunc={boundBoxFunc}
             onTransformStart={onTransformStart}
             onTransform={onTransform}

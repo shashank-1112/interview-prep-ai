@@ -1,7 +1,7 @@
 import { Copy, CopyPlus, Grid3x3, LayoutGrid, MapPin, PencilLine, SquareArrowOutUpRight, Trash2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { Button, formatPrice } from '../components/ui';
-import { annotationMeta, STALL_COLORS, STATUS_LABELS, UNIT_LABELS } from '../domain/constants';
+import { annotationMeta, stallColorFor, stallStatusLabelFor, UNIT_LABELS } from '../domain/constants';
 import { statusCounts } from '../domain/layoutOps';
 import { formatLength, groundLocation, inferSide, parkingCapacity, sideLabel } from '../domain/site';
 import type { StallLayoutData, StallStatus } from '../domain/types';
@@ -11,18 +11,19 @@ import { MOD } from '../hooks/shortcuts';
 import { DetailRow, StallDetails } from './StallDetails';
 
 function StatusSummary({ counts, total }: { counts: Record<StallStatus, number>; total: number }) {
+  const config = useLayoutStore((s) => s.layoutConfig);
   return (
     <div>
       <div className="flex h-2 overflow-hidden rounded-full bg-slate-100" aria-hidden>
         {(Object.keys(counts) as StallStatus[]).map((k) =>
-          counts[k] ? <div key={k} style={{ width: `${(counts[k] / total) * 100}%`, background: STALL_COLORS[k].stroke }} /> : null,
+          counts[k] ? <div key={k} style={{ width: `${(counts[k] / total) * 100}%`, background: stallColorFor(config, k).stroke }} /> : null,
         )}
       </div>
       <ul className="mt-2 grid grid-cols-2 gap-1 text-xs">
         {(Object.keys(counts) as StallStatus[]).map((k) => (
           <li key={k} className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-sm" style={{ background: STALL_COLORS[k].fill, boxShadow: `inset 0 0 0 1.5px ${STALL_COLORS[k].stroke}` }} aria-hidden />
-            <span className="text-slate-600">{STATUS_LABELS[k]}</span>
+            <span className="h-2.5 w-2.5 rounded-sm" style={{ background: stallColorFor(config, k).fill, boxShadow: `inset 0 0 0 1.5px ${stallColorFor(config, k).stroke}` }} aria-hidden />
+            <span className="text-slate-600">{stallStatusLabelFor(config, k)}</span>
             <span className="ml-auto font-medium tabular-nums text-slate-900">{counts[k]}</span>
           </li>
         ))}
@@ -76,6 +77,7 @@ function Overview({ data }: { data: StallLayoutData }) {
 
 export function DetailsPanel({ data }: { data: StallLayoutData }) {
   const sel = useLayoutStore((s) => s.groundSelection);
+  const canManage = useLayoutStore((s) => s.canManageLayout);
   const openEditor = useLayoutStore((s) => s.openEditor);
   const openModal = useLayoutStore((s) => s.openModal);
   const unit = UNIT_LABELS[data.ground.unit];
@@ -106,32 +108,36 @@ export function DetailsPanel({ data }: { data: StallLayoutData }) {
           <DetailRow label="Markers">{data.annotations.filter((a) => a.hangarId === h.id).length}</DetailRow>
         </dl>
         {stalls.length > 0 && <StatusSummary counts={counts} total={stalls.length} />}
-        <div className="grid grid-cols-2 gap-1.5">
-          <Button size="sm" icon={<PencilLine size={14} />} onClick={() => openModal({ kind: 'editHangar', hangarId: h.id })}>
-            Edit hangar
-          </Button>
-          <Button size="sm" icon={<LayoutGrid size={14} />} onClick={() => openModal({ kind: 'generateStalls', hangarId: h.id })}>
-            Generate stalls
-          </Button>
-          <Button size="sm" icon={<MapPin size={14} />} onClick={() => openModal({ kind: 'annotation', hangarId: h.id, annotationId: null })}>
-            Add marker
-          </Button>
-          <Button size="sm" icon={<Copy size={14} />} onClick={() => duplicateHangar(h.id, false)} title="Same-size empty hangar next to this one">
-            Duplicate
-          </Button>
-          <Button
-            size="sm"
-            icon={<CopyPlus size={14} />}
-            onClick={() => duplicateHangar(h.id, true)}
-            disabled={stalls.length === 0 && data.annotations.every((a) => a.hangarId !== h.id)}
-            title={`Copy with its stalls, reset to available (${MOD}+D)`}
-          >
-            Duplicate + stalls
-          </Button>
-        </div>
-        <Button size="sm" variant="ghost" className="w-full text-red-600 hover:bg-red-50 hover:text-red-700" icon={<Trash2 size={14} />} onClick={() => deleteHangar(h.id)}>
-          Delete hangar
-        </Button>
+        {canManage && (
+          <>
+            <div className="grid grid-cols-2 gap-1.5">
+              <Button size="sm" icon={<PencilLine size={14} />} onClick={() => openModal({ kind: 'editHangar', hangarId: h.id })}>
+                Edit hangar
+              </Button>
+              <Button size="sm" icon={<LayoutGrid size={14} />} onClick={() => openModal({ kind: 'generateStalls', hangarId: h.id })}>
+                Generate stalls
+              </Button>
+              <Button size="sm" icon={<MapPin size={14} />} onClick={() => openModal({ kind: 'annotation', hangarId: h.id, annotationId: null })}>
+                Add marker
+              </Button>
+              <Button size="sm" icon={<Copy size={14} />} onClick={() => duplicateHangar(h.id, false)} title="Same-size empty hangar next to this one">
+                Duplicate
+              </Button>
+              <Button
+                size="sm"
+                icon={<CopyPlus size={14} />}
+                onClick={() => duplicateHangar(h.id, true)}
+                disabled={stalls.length === 0 && data.annotations.every((a) => a.hangarId !== h.id)}
+                title={`Copy with its stalls, reset to available (${MOD}+D)`}
+              >
+                Duplicate + stalls
+              </Button>
+            </div>
+            <Button size="sm" variant="ghost" className="w-full text-red-600 hover:bg-red-50 hover:text-red-700" icon={<Trash2 size={14} />} onClick={() => deleteHangar(h.id)}>
+              Delete hangar
+            </Button>
+          </>
+        )}
       </div>
     );
   }
@@ -200,15 +206,17 @@ export function DetailsPanel({ data }: { data: StallLayoutData }) {
             {a.x}, {a.y} {unit}
           </DetailRow>
         </dl>
-        <div className="flex gap-1.5">
-          <Button size="sm" icon={<PencilLine size={14} />} onClick={() => openModal({ kind: 'annotation', hangarId: null, annotationId: a.id })}>
-            Edit
-          </Button>
-          <Button size="sm" variant="ghost" className="ml-auto text-red-600 hover:bg-red-50 hover:text-red-700" icon={<Trash2 size={14} />} onClick={() => deleteAnnotation(a.id)}>
-            Delete
-          </Button>
-        </div>
-        {!useLayoutStore.getState().editMode && <p className="text-xs text-slate-500">Turn on Edit Layout to move or resize it.</p>}
+        {canManage && (
+          <div className="flex gap-1.5">
+            <Button size="sm" icon={<PencilLine size={14} />} onClick={() => openModal({ kind: 'annotation', hangarId: null, annotationId: a.id })}>
+              Edit
+            </Button>
+            <Button size="sm" variant="ghost" className="ml-auto text-red-600 hover:bg-red-50 hover:text-red-700" icon={<Trash2 size={14} />} onClick={() => deleteAnnotation(a.id)}>
+              Delete
+            </Button>
+          </div>
+        )}
+        {canManage && !useLayoutStore.getState().editMode && <p className="text-xs text-slate-500">Turn on Edit Layout to move or resize it.</p>}
         {a.type === 'road' && <p className="text-xs text-slate-500">Roads always stay outside the ground — a drop onto the ground is reverted.</p>}
       </div>
     );

@@ -19,6 +19,7 @@ export function DetailRow({ label, children }: { label: string; children: ReactN
 
 export function StallDetails({ stall, hangar, unit, extraActions }: { stall: Stall; hangar?: Hangar | undefined; unit: LayoutUnit; extraActions?: ReactNode }) {
   const openModal = useLayoutStore((s) => s.openModal);
+  const canManage = useLayoutStore((s) => s.canManageLayout);
   const u = UNIT_LABELS[unit];
   return (
     <div className="space-y-4">
@@ -47,24 +48,35 @@ export function StallDetails({ stall, hangar, unit, extraActions }: { stall: Sta
         </DetailRow>
         <DetailRow label="Base price">{formatPrice(stall.basePrice)}</DetailRow>
         <DetailRow label="Final price">{formatPrice(stall.finalPrice)}</DetailRow>
+        {stall.isBillable === false && (
+          <DetailRow label="Billing">
+            <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700">Non-billable</span>
+          </DetailRow>
+        )}
         <DetailRow label="Exhibitor">{stall.exhibitorName ?? <span className="font-normal text-slate-400">—</span>}</DetailRow>
       </dl>
-      <section aria-label="Open sides">
-        <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">Open sides</h3>
-        <OpenSidesPicker state={sideStates([stall])} onToggle={(side) => toggleStallOpenSide([stall.id], side)} size="sm" />
-      </section>
+      {canManage && (
+        <section aria-label="Open sides">
+          <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">Open sides</h3>
+          <OpenSidesPicker state={sideStates([stall])} onToggle={(side) => toggleStallOpenSide([stall.id], side)} size="sm" />
+        </section>
+      )}
       <section aria-label="Booking">
         <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">Booking</h3>
         <QuickActions stall={stall} />
       </section>
       <div className="flex flex-wrap gap-1.5 border-t border-slate-100 pt-3">
-        <Button size="sm" icon={<PencilLine size={14} />} onClick={() => openModal({ kind: 'editStall', stallId: stall.id })}>
-          Edit
-        </Button>
+        {canManage && (
+          <Button size="sm" icon={<PencilLine size={14} />} onClick={() => openModal({ kind: 'editStall', stallId: stall.id })}>
+            Edit
+          </Button>
+        )}
         {extraActions}
-        <Button size="sm" variant="ghost" className="ml-auto text-red-600 hover:bg-red-50 hover:text-red-700" icon={<Trash2 size={14} />} onClick={() => deleteStalls([stall.id])}>
-          Delete
-        </Button>
+        {canManage && (
+          <Button size="sm" variant="ghost" className="ml-auto text-red-600 hover:bg-red-50 hover:text-red-700" icon={<Trash2 size={14} />} onClick={() => deleteStalls([stall.id])}>
+            Delete
+          </Button>
+        )}
       </div>
     </div>
   );

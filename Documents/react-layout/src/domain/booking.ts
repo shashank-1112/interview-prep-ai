@@ -74,6 +74,9 @@ const TRANSITIONS: Record<StallStatus, BookingAction[]> = {
   available: ['reserve', 'book', 'block'],
   reserved: ['book', 'cancel-reservation'],
   booked: ['cancel-booking'],
+  // No actions wired yet — when a stall becomes Allocated vs. Booked, and what undoes it, is
+  // Phase 2 lifecycle logic (see LAYOUT_PHASE1_DECISIONS.md item 3), deliberately not decided here.
+  allocated: [],
   blocked: ['unblock'],
 };
 
@@ -95,5 +98,9 @@ export function applyBookingAction(stall: Stall, action: BookingAction, exhibito
     if (!name) throw new Error('Please enter an exhibitor name.');
     return { ...stall, status: meta.target, exhibitorName: name };
   }
-  return { ...stall, status: meta.target, exhibitorName: null };
+  // Block/unblock/cancel-* all drop any real booking link too — a stall with
+  // no exhibitor was never actually assigned to anything. (reserve/book above
+  // deliberately don't touch stallBookingId: a free-text "book" upgrade on an
+  // already-assigned stall should keep the same link intact.)
+  return { ...stall, status: meta.target, exhibitorName: null, stallBookingId: undefined };
 }

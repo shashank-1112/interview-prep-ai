@@ -65,6 +65,7 @@ export default function GenerateStallsForm({ hangarId, onClose }: { hangarId: nu
       stallType: 'Standard',
       basePrice: 25000,
       cornerOrientation: 'top-right',
+      isBillable: true,
       walls: ['top', 'right', 'left'],
       wallGap: 0,
       aisle: snap(feet ? 10 : 3, data.ground.gridSize),
@@ -278,7 +279,7 @@ export default function GenerateStallsForm({ hangarId, onClose }: { hangarId: nu
             onValueChange={onPresetChange}
           />
           <NumberField form={form} name="stallWidth" label={perimeter ? 'Frontage (along aisle)' : 'Width'} onValueChange={onSizeEdited} />
-          <NumberField form={form} name="stallHeight" label={perimeter ? 'Depth (to wall)' : 'Height'} onValueChange={onSizeEdited} />
+          <NumberField form={form} name="stallHeight" label={perimeter ? 'Depth (to wall)' : 'Length'} onValueChange={onSizeEdited} />
           <div />
 
           <SectionTitle>Type & pricing</SectionTitle>
@@ -293,6 +294,10 @@ export default function GenerateStallsForm({ hangarId, onClose }: { hangarId: nu
             hint={Number.isFinite(v.basePrice) ? formatPrice(Number(v.basePrice)) : undefined}
             className="col-span-2"
           />
+          <label className="col-span-2 inline-flex items-center gap-1.5 self-end pb-2 text-sm text-slate-700">
+            <input type="checkbox" className="h-4 w-4 accent-blue-600" {...form.register('isBillable')} />
+            Billable
+          </label>
         </div>
       </form>
     </Modal>

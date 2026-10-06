@@ -1,5 +1,5 @@
 import { decodeJwt, getTokenEmail, getTokenExpiryTime, getTokenFullName, getTokenRoles } from './jwt';
-import { PLANNER_ROLES } from './types';
+import { MANAGE_ROLES, PLANNER_ROLES } from './types';
 import type { AuthSession, StoredAuthTokens } from './types';
 
 /** Reconstructs an AuthSession purely by decoding accessToken's claims — same
@@ -29,7 +29,12 @@ export function isExpired(session: Pick<AuthSession, 'tokenExpiryTime'>): boolea
   return Date.parse(session.tokenExpiryTime) <= Date.now();
 }
 
-/** Same gate as the Angular route's superAdminRoles — keep PLANNER_ROLES in sync. */
+/** Same gate as the Angular route's layoutPlannerRoles — keep PLANNER_ROLES in sync. */
 export function hasPlannerAccess(session: Pick<AuthSession, 'roles'>): boolean {
   return PLANNER_ROLES.some((role) => session.roles.includes(role));
+}
+
+/** True for everyone except sales_person — see MANAGE_ROLES' doc comment. */
+export function canManageLayout(session: Pick<AuthSession, 'roles'>): boolean {
+  return MANAGE_ROLES.some((role) => session.roles.includes(role));
 }

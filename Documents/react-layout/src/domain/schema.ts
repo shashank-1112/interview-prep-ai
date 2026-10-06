@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { ANNOTATION_TYPE_VALUES, type StallLayoutData } from './types';
 
 /** Runtime validation for layouts coming from storage or the network. */
-const statusSchema = z.enum(['available', 'reserved', 'booked', 'blocked']);
+const statusSchema = z.enum(['available', 'reserved', 'booked', 'allocated', 'blocked']);
 const cornerSchema = z.enum(['top-left', 'top-right', 'bottom-left', 'bottom-right']);
 export const annotTypeSchema = z.enum(ANNOTATION_TYPE_VALUES);
 
@@ -41,6 +41,7 @@ export const stallSchema = z.object({
   finalPrice: z.number(),
   status: statusSchema,
   exhibitorName: z.string().nullable(),
+  stallBookingId: z.number().optional(),
   cornerOrientation: cornerSchema.optional(),
   openSides: z.array(z.enum(['top', 'right', 'bottom', 'left'])).optional(),
 });

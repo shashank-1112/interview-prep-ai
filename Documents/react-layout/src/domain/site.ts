@@ -7,8 +7,8 @@
  * coordinates and beyond the ground's far edges.
  */
 import { UNIT_LABELS } from './constants';
-import { boundingBox, clean, rectsOverlap } from './geometry';
-import { ANNOTATION_TYPE_VALUES, type AnnotationType, type ExhibitionGround, type GroundSide, type LayoutAnnotation, type LayoutUnit, type Rect } from './types';
+import { boundingBox, clean, distanceToPolygonEdges, pointInPolygon, rectsOverlap } from './geometry';
+import { ANNOTATION_TYPE_VALUES, type AnnotationType, type ExhibitionGround, type GroundSide, type LayoutAnnotation, type LayoutUnit, type Point, type Rect } from './types';
 
 const EPS = 1e-6;
 
@@ -61,9 +61,21 @@ export function placementName(type: AnnotationType): string {
       return 'Gift counters';
     case 'washroom':
       return 'Washrooms';
+    case 'cctv':
+      return 'CCTV cameras';
+    case 'fire-exit':
+      return 'Fire exits';
     default:
       return 'This marker';
   }
+}
+
+/** Toggled by the "Safety markers" show/hide button (App.tsx / HangarEditor.tsx) — purely a display concern, never affects placement rules, collision, or fit-to-content bounds. */
+export const SAFETY_MARKER_TYPES: readonly AnnotationType[] = ['cctv', 'fire-exit'];
+
+/** Filters an annotation list down to what should actually be drawn/announced right now. Always pass the FULL list through everywhere else (siteBounds, drag bounds, overlap checks, fit-to-content) — hiding a marker must never change where things are allowed to go. */
+export function visibleAnnotations<T extends Pick<LayoutAnnotation, 'type'>>(annotations: T[], showSafetyMarkers: boolean): T[] {
+  return showSafetyMarkers ? annotations : annotations.filter((a) => !SAFETY_MARKER_TYPES.includes(a.type));
 }
 
 /**
@@ -76,6 +88,39 @@ export function blocksHangars(a: Pick<LayoutAnnotation, 'type' | 'hangarId'>): b
 
 export function groundRect(g: Pick<ExhibitionGround, 'width' | 'height'>): Rect {
   return { x: 0, y: 0, width: g.width, height: g.height };
+}
+
+/** The polygon to actually check containment/setback against: the custom boundary if one is
+ *  set (>= 3 points), otherwise the plain width×height rectangle's 4 corners. Always has >= 3
+ *  points, so callers never need to special-case "no boundary set". */
+export function activeBoundary(g: Pick<ExhibitionGround, 'width' | 'height' | 'boundary'>): Point[] {
+  if (g.boundary && g.boundary.length >= 3) return g.boundary;
+  const r = groundRect(g);
+  return [
+    { x: r.x, y: r.y },
+    { x: r.x + r.width, y: r.y },
+    { x: r.x + r.width, y: r.y + r.height },
+    { x: r.x, y: r.y + r.height },
+  ];
+}
+
+/**
+ * True if any corner of `rect` sits inside the ground but within `g.setbackDistance` of its
+ * boundary. A warning only (per LAYOUT_PHASE1_DECISIONS.md item 2) — callers show it, never
+ * block on it. False whenever no setback is configured, or a corner is already outside the
+ * boundary entirely (that's a placement problem, not a setback one).
+ */
+export function setbackViolation(rect: Rect, g: Pick<ExhibitionGround, 'width' | 'height' | 'boundary' | 'setbackDistance'>): boolean {
+  const setback = g.setbackDistance ?? 0;
+  if (setback <= 0) return false;
+  const boundary = activeBoundary(g);
+  const corners: Point[] = [
+    { x: rect.x, y: rect.y },
+    { x: rect.x + rect.width, y: rect.y },
+    { x: rect.x + rect.width, y: rect.y + rect.height },
+    { x: rect.x, y: rect.y + rect.height },
+  ];
+  return corners.some((c) => pointInPolygon(c, boundary) && distanceToPolygonEdges(c, boundary) < setback);
 }
 
 /** How far outside the ground things may be placed (layout units). */

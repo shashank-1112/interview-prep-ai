@@ -1,27 +1,26 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import App from './App';
 import { AuthGate } from './auth/AuthContext';
 import './canvas/konvaUtils';
 import './index.css';
-import { LocalStorageLayoutRepository } from './repository/localStorageRepository';
+import PlannerRoot from './PlannerRoot';
 
 /**
- * Composition root. To back the planner with the .NET API instead of
- * localStorage, construct a different LayoutRepository here — nothing else
- * in the app needs to change.
+ * Composition root. PlannerRoot picks which exhibition to plan (via GET
+ * /api/layout/exhibitions) and constructs an ApiLayoutRepository scoped to
+ * it — App itself stays repository-agnostic; LocalStorageLayoutRepository /
+ * MemoryLayoutRepository still exist and are exercised directly by tests
+ * (src/test/components.test.tsx, e2e/*), just no longer the default entry.
  *
  * AuthGate only belongs here, not inside App: it validates the super-admin session
  * (shared with the Angular app — see src/auth/), redirecting out to the
  * Angular login/home when there isn't one. Unit tests render App directly and
  * never see it; e2e tests seed a session before the page loads (e2e/helpers.ts).
  */
-const repository = new LocalStorageLayoutRepository();
-
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AuthGate>
-      <App repository={repository} />
+      <PlannerRoot />
     </AuthGate>
   </StrictMode>,
 );

@@ -11,8 +11,6 @@ import { generateGroundSchema } from './schemas';
 
 function defaults(): GenerateGroundValues {
   const base: GenerateGroundValues = {
-    exhibitionName: '',
-    venueName: '',
     unit: 'meter',
     width: 60,
     height: 40,
@@ -31,6 +29,7 @@ function defaults(): GenerateGroundValues {
 
 export default function GenerateGroundForm({ onClose }: { onClose: () => void }) {
   const hasLayout = useLayoutStore((s) => s.data !== null);
+  const exhibitionMeta = useLayoutStore((s) => s.exhibitionMeta);
   const form = useForm<GenerateGroundValues>({ resolver: zodResolver(generateGroundSchema), defaultValues: defaults(), mode: 'onTouched' });
 
   const autoFit = () => {
@@ -67,10 +66,13 @@ export default function GenerateGroundForm({ onClose }: { onClose: () => void })
     >
       <form id="generate-ground-form" onSubmit={onSubmit} noValidate>
         <FormError message={form.formState.errors.root?.message} />
+        {exhibitionMeta && (
+          <p className="mb-3 text-sm text-slate-500">
+            For <span className="font-medium text-slate-700">{exhibitionMeta.name}</span>
+            {exhibitionMeta.venueName && <> · {exhibitionMeta.venueName}</>}
+          </p>
+        )}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <SectionTitle>Exhibition</SectionTitle>
-          <TextField form={form} name="exhibitionName" label="Exhibition name" className="col-span-2" autoFocus />
-          <TextField form={form} name="venueName" label="Venue" className="col-span-2" />
           <SectionTitle>Ground</SectionTitle>
           <SelectField
             form={form}
@@ -82,14 +84,14 @@ export default function GenerateGroundForm({ onClose }: { onClose: () => void })
             ]}
           />
           <NumberField form={form} name="width" label="Width" />
-          <NumberField form={form} name="height" label="Height" />
+          <NumberField form={form} name="height" label="Length" />
           <NumberField form={form} name="gridSize" label="Grid size" hint="Snap step" />
           <SectionTitle>Hangars</SectionTitle>
           <NumberField form={form} name="numHangars" label="Number of hangars" step={1} min={1} />
           <NumberField form={form} name="hangarsPerRow" label="Hangars per row" step={1} min={1} />
           <TextField form={form} name="hangarPrefix" label="Name prefix" className="col-span-2" hint='e.g. "Hangar" → Hangar A, Hangar B…' />
           <NumberField form={form} name="hangarWidth" label="Hangar width" />
-          <NumberField form={form} name="hangarHeight" label="Hangar height" />
+          <NumberField form={form} name="hangarHeight" label="Hangar length" />
           <NumberField form={form} name="gap" label="Gap" />
           <div className="flex items-end">
             <Button size="sm" icon={<Wand2 size={14} />} onClick={autoFit} className="w-full">

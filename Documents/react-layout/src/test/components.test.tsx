@@ -46,7 +46,7 @@ describe('GenerateStallsForm', () => {
     await user.click(screen.getByText('Grid', { exact: true }));
     await user.selectOptions(screen.getByLabelText('Size preset'), '2×4');
     expect(screen.getByLabelText('Width')).toHaveValue(2);
-    expect(screen.getByLabelText('Height')).toHaveValue(4);
+    expect(screen.getByLabelText('Length')).toHaveValue(4);
     await user.type(screen.getByLabelText('Width'), '5');
     expect(screen.getByLabelText('Size preset')).toHaveValue('Custom');
   });
@@ -157,7 +157,7 @@ describe('AnnotationForm review regressions', () => {
     render(<AnnotationForm hangarId={null} annotationId={1} onClose={() => {}} />);
     await user.click(screen.getByText('Parking Area'));
     expect(screen.getByLabelText('Width (m)')).toHaveValue(6);
-    expect(screen.getByLabelText('Height (m)')).toHaveValue(40);
+    expect(screen.getByLabelText('Length (m)')).toHaveValue(40);
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
     expect(useLayoutStore.getState().data!.annotations[0]).toMatchObject({ type: 'parking', x: -6, y: 0, width: 6, height: 40 });
   });
@@ -235,8 +235,8 @@ describe('AnnotationForm — orientation & labels (review 2)', () => {
     await user.selectOptions(screen.getByLabelText('Beside which side'), 'left');
     await user.clear(screen.getByLabelText('Width (m)'));
     await user.type(screen.getByLabelText('Width (m)'), '6');
-    await user.clear(screen.getByLabelText('Height (m)'));
-    await user.type(screen.getByLabelText('Height (m)'), '40');
+    await user.clear(screen.getByLabelText('Length (m)'));
+    await user.type(screen.getByLabelText('Length (m)'), '40');
     await user.click(screen.getByText('Road', { exact: true }));
     expect(screen.getByLabelText('Length along side (m)')).toHaveValue(40);
     expect(screen.getByLabelText('Road width (m)')).toHaveValue(6);
@@ -275,8 +275,8 @@ describe('AnnotationForm — orientation & labels (review 2)', () => {
     await user.click(screen.getByText('Washroom'));
     await user.clear(screen.getByLabelText('Width (m)'));
     await user.type(screen.getByLabelText('Width (m)'), '12');
-    await user.clear(screen.getByLabelText('Height (m)'));
-    await user.type(screen.getByLabelText('Height (m)'), '25');
+    await user.clear(screen.getByLabelText('Length (m)'));
+    await user.type(screen.getByLabelText('Length (m)'), '25');
     await user.click(screen.getByRole('button', { name: 'Add marker' }));
     expect(await screen.findByText(/No free space inside the ground/)).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();

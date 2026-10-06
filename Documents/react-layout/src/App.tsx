@@ -11,6 +11,7 @@ import {
   Redo2,
   RotateCcw,
   Save,
+  ShieldAlert,
   Sparkles,
   Trash2,
   Undo2,
@@ -38,10 +39,13 @@ const BulkActionsPanel = lazy(() => import('./panels/BulkActionsPanel'));
 
 function Header() {
   const data = useLayoutStore((s) => s.data);
+  const canManage = useLayoutStore((s) => s.canManageLayout);
   const editMode = useLayoutStore((s) => s.editMode);
   const setEditMode = useLayoutStore((s) => s.setEditMode);
   const showDimensions = useLayoutStore((s) => s.showDimensions);
   const setShowDimensions = useLayoutStore((s) => s.setShowDimensions);
+  const showSafetyMarkers = useLayoutStore((s) => s.showSafetyMarkers);
+  const setShowSafetyMarkers = useLayoutStore((s) => s.setShowSafetyMarkers);
   const openModal = useLayoutStore((s) => s.openModal);
   const selectedHangarId = useLayoutStore((s) => (s.groundSelection?.kind === 'hangar' ? s.groundSelection.id : null));
   const { canUndo, canRedo, undo, redo } = useUndoRedo();
@@ -61,11 +65,16 @@ function Header() {
         </div>
       </div>
       <div className="ml-auto flex flex-wrap items-center gap-1" role="toolbar" aria-label="Layout tools">
-        <Button size="sm" icon={<Sparkles size={14} />} onClick={() => openModal({ kind: 'generateGround' })}>
-          Generate ground
-        </Button>
-        {data && (
+        {canManage && (
+          <Button size="sm" icon={<Sparkles size={14} />} onClick={() => openModal({ kind: 'generateGround' })}>
+            Generate ground
+          </Button>
+        )}
+        {data && canManage && (
           <>
+            {/* "Boundary" entry point hidden for now (feature stays built — store/actions/
+                backend untouched, see GroundBoundaryForm.tsx and LAYOUT_PHASE1_DECISIONS.md
+                item 2) — re-add a button opening { kind: 'groundBoundary' } to bring it back. */}
             <Button size="sm" icon={<Plus size={14} />} onClick={() => openModal({ kind: 'addHangar' })}>
               Hangar
             </Button>
@@ -100,26 +109,43 @@ function Header() {
             <Ruler size={17} />
           </IconButton>
         )}
-        <IconButton label="Undo" shortcut={`${MOD}+Z`} disabled={!canUndo} onClick={undo}>
-          <Undo2 size={17} />
-        </IconButton>
-        <IconButton label="Redo" shortcut={`${MOD}+Shift+Z`} disabled={!canRedo} onClick={redo}>
-          <Redo2 size={17} />
-        </IconButton>
-        <IconButton label="Save" shortcut={`${MOD}+S`} onClick={() => void saveLayout()}>
-          <Save size={17} />
-        </IconButton>
+        {data && (
+          <IconButton
+            label={showSafetyMarkers ? 'Hide safety markers (CCTV, Fire Exit)' : 'Show safety markers (CCTV, Fire Exit)'}
+            active={showSafetyMarkers}
+            onClick={() => setShowSafetyMarkers(!showSafetyMarkers)}
+          >
+            <ShieldAlert size={17} />
+          </IconButton>
+        )}
+        {canManage && (
+          <>
+            <IconButton label="Undo" shortcut={`${MOD}+Z`} disabled={!canUndo} onClick={undo}>
+              <Undo2 size={17} />
+            </IconButton>
+            <IconButton label="Redo" shortcut={`${MOD}+Shift+Z`} disabled={!canRedo} onClick={redo}>
+              <Redo2 size={17} />
+            </IconButton>
+            <IconButton label="Save" shortcut={`${MOD}+S`} onClick={() => void saveLayout()}>
+              <Save size={17} />
+            </IconButton>
+          </>
+        )}
         <IconButton label="Keyboard shortcuts" shortcut="?" onClick={() => openModal({ kind: 'shortcuts' })}>
           <Keyboard size={17} />
         </IconButton>
-        <ToolbarDivider />
-        <IconButton label="Load demo layout" onClick={loadDemoLayout}>
-          <RotateCcw size={17} />
-        </IconButton>
-        {data && (
-          <IconButton label="Clear all" onClick={clearAll} className="hover:bg-red-50 hover:text-red-600">
-            <Trash2 size={17} />
-          </IconButton>
+        {canManage && (
+          <>
+            <ToolbarDivider />
+            <IconButton label="Load demo layout" onClick={loadDemoLayout}>
+              <RotateCcw size={17} />
+            </IconButton>
+            {data && (
+              <IconButton label="Clear all" onClick={clearAll} className="hover:bg-red-50 hover:text-red-600">
+                <Trash2 size={17} />
+              </IconButton>
+            )}
+          </>
         )}
       </div>
     </header>

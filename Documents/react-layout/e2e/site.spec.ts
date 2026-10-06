@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type Konva from 'konva';
-import { boot, center, drag, nodeBox, openEditor, pxPerUnit, state } from './helpers';
+import { boot, center, drag, nodeBox, nodeBoxOrNull, openEditor, pxPerUnit, state } from './helpers';
 
 test.beforeEach(async ({ page }) => {
   await boot(page);
@@ -156,4 +156,36 @@ test('adds a gift counter outside and a washroom inside the ground', async ({ pa
   await expect(page.getByTestId('selection-announcer')).toContainText('Washroom');
   // The size readout draws above the ground-dimension layer.
   expect(await page.evaluate(() => window.__layoutTest__!.stages.ground!.getLayers().at(-1)!.name())).toBe('readout');
+});
+
+test('CCTV (ground level) and Fire Exit (inside a hangar) can be placed, and the safety-markers toggle hides/shows them in both views', async ({ page }) => {
+  // Ground-level CCTV.
+  await page.getByRole('button', { name: 'Marker', exact: true }).click();
+  const groundDialog = page.getByRole('dialog', { name: 'Add Marker' });
+  await groundDialog.getByText('CCTV Camera', { exact: true }).click();
+  await groundDialog.getByRole('button', { name: 'Add marker' }).click();
+  const cctv = (await state(page, (s) => s.data!.annotations)).find((a) => a.type === 'cctv')!;
+  expect(cctv).toMatchObject({ type: 'cctv', hangarId: null });
+
+  await nodeBox(page, 'ground', `#annotation-${cctv.id}`);
+  await page.getByRole('button', { name: 'Hide safety markers (CCTV, Fire Exit)' }).click();
+  expect(await nodeBoxOrNull(page, 'ground', `#annotation-${cctv.id}`)).toBeNull();
+  await page.getByRole('button', { name: 'Show safety markers (CCTV, Fire Exit)' }).click();
+  await nodeBox(page, 'ground', `#annotation-${cctv.id}`);
+
+  // Fire Exit inside a hangar — same annotation type system, just hangarId set.
+  await openEditor(page, 1);
+  await page.getByTestId('hangar-editor').getByRole('button', { name: 'Add marker' }).click();
+  const editorDialog = page.getByRole('dialog', { name: 'Add Marker' });
+  await editorDialog.getByText('Fire Exit', { exact: true }).click();
+  await editorDialog.getByRole('button', { name: 'Add marker' }).click();
+  const fireExit = (await state(page, (s) => s.data!.annotations)).find((a) => a.type === 'fire-exit')!;
+  expect(fireExit).toMatchObject({ type: 'fire-exit', hangarId: 1 });
+
+  await nodeBox(page, 'editor', `#annotation-${fireExit.id}`);
+  // Toggling was already exercised via the main header above — here, exercise
+  // the hangar editor's OWN copy of the same button (both are mounted at once
+  // while the editor overlay is open, hence the scoped locator).
+  await page.getByTestId('hangar-editor').getByRole('button', { name: 'Hide safety markers (CCTV, Fire Exit)' }).click();
+  expect(await nodeBoxOrNull(page, 'editor', `#annotation-${fireExit.id}`)).toBeNull();
 });

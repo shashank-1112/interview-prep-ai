@@ -17,6 +17,7 @@ import {
   PencilLine,
   Redo2,
   Ruler,
+  ShieldAlert,
   SquarePlus,
   SquareSplitHorizontal,
   SquareSplitVertical,
@@ -48,6 +49,7 @@ import { HangarEditorStage } from './HangarEditorStage';
 
 function SelectionPanel({ data, hangar }: { data: StallLayoutData; hangar: Hangar }) {
   const editor = useLayoutStore((s) => s.editor);
+  const canManage = useLayoutStore((s) => s.canManageLayout);
   const openModal = useLayoutStore((s) => s.openModal);
   const setEditorStalls = useLayoutStore((s) => s.setEditorStalls);
   const unit = UNIT_LABELS[data.ground.unit];
@@ -73,14 +75,16 @@ function SelectionPanel({ data, hangar }: { data: StallLayoutData; hangar: Hanga
               {a.width} × {a.height} {unit}
             </DetailRow>
           </dl>
-          <div className="flex gap-1.5">
-            <Button size="sm" icon={<PencilLine size={14} />} onClick={() => openModal({ kind: 'annotation', hangarId: hangar.id, annotationId: a.id })}>
-              Edit
-            </Button>
-            <Button size="sm" variant="ghost" className="ml-auto text-red-600 hover:bg-red-50" icon={<Trash2 size={14} />} onClick={() => deleteAnnotation(a.id)}>
-              Delete
-            </Button>
-          </div>
+          {canManage && (
+            <div className="flex gap-1.5">
+              <Button size="sm" icon={<PencilLine size={14} />} onClick={() => openModal({ kind: 'annotation', hangarId: hangar.id, annotationId: a.id })}>
+                Edit
+              </Button>
+              <Button size="sm" variant="ghost" className="ml-auto text-red-600 hover:bg-red-50" icon={<Trash2 size={14} />} onClick={() => deleteAnnotation(a.id)}>
+                Delete
+              </Button>
+            </div>
+          )}
         </div>
       );
     }
@@ -110,25 +114,31 @@ function SelectionPanel({ data, hangar }: { data: StallLayoutData; hangar: Hanga
             {counts.booked} / {counts.blocked}
           </DetailRow>
         </dl>
-        <section aria-label="Open sides">
-          <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">Open sides (all selected)</h3>
-          <OpenSidesPicker
-            state={sideStates(selected)}
-            onToggle={(side) => toggleStallOpenSide(editor.stallIds, side)}
-            caption="Click a side to open it on every selected stall; click again to wall it."
-            size="sm"
-          />
-        </section>
-        <p className="text-xs text-slate-500">
-          Use the toolbar to align, distribute, duplicate or merge. Drag any selected stall to move them together; drag a handle to resize.
-        </p>
+        {canManage && (
+          <section aria-label="Open sides">
+            <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">Open sides (all selected)</h3>
+            <OpenSidesPicker
+              state={sideStates(selected)}
+              onToggle={(side) => toggleStallOpenSide(editor.stallIds, side)}
+              caption="Click a side to open it on every selected stall; click again to wall it."
+              size="sm"
+            />
+          </section>
+        )}
+        {canManage && (
+          <p className="text-xs text-slate-500">
+            Use the toolbar to align, distribute, duplicate or merge. Drag any selected stall to move them together; drag a handle to resize.
+          </p>
+        )}
         <div className="flex gap-1.5">
           <Button size="sm" onClick={() => setEditorStalls([])}>
             Clear selection
           </Button>
-          <Button size="sm" variant="ghost" className="ml-auto text-red-600 hover:bg-red-50" icon={<Trash2 size={14} />} onClick={() => deleteStalls(editor.stallIds)}>
-            Delete {selected.length}
-          </Button>
+          {canManage && (
+            <Button size="sm" variant="ghost" className="ml-auto text-red-600 hover:bg-red-50" icon={<Trash2 size={14} />} onClick={() => deleteStalls(editor.stallIds)}>
+              Delete {selected.length}
+            </Button>
+          )}
         </div>
       </div>
     );
@@ -163,11 +173,14 @@ function SelectionPanel({ data, hangar }: { data: StallLayoutData; hangar: Hanga
 
 export default function HangarEditor({ hangarId }: { hangarId: number }) {
   const data = useLayoutStore((s) => s.data);
+  const canManage = useLayoutStore((s) => s.canManageLayout);
   const editor = useLayoutStore((s) => s.editor);
   const closeEditor = useLayoutStore((s) => s.closeEditor);
   const openModal = useLayoutStore((s) => s.openModal);
   const showDimensions = useLayoutStore((s) => s.showDimensions);
   const setShowDimensions = useLayoutStore((s) => s.setShowDimensions);
+  const showSafetyMarkers = useLayoutStore((s) => s.showSafetyMarkers);
+  const setShowSafetyMarkers = useLayoutStore((s) => s.setShowSafetyMarkers);
   const { canUndo, canRedo, undo, redo } = useUndoRedo();
   const [panMode, setPanMode] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -210,70 +223,81 @@ export default function HangarEditor({ hangarId }: { hangarId: number }) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-0.5" role="toolbar" aria-label="Hangar editor tools">
-          <Button size="sm" variant="primary" icon={<LayoutGrid size={14} />} onClick={() => openModal({ kind: 'generateStalls', hangarId })}>
-            Generate
-          </Button>
-          <IconButton label="Add stall" onClick={() => openModal({ kind: 'addStall', hangarId })}>
-            <SquarePlus size={17} />
-          </IconButton>
-          <IconButton label="Add marker" onClick={() => openModal({ kind: 'annotation', hangarId, annotationId: null })}>
-            <MapPin size={17} />
-          </IconButton>
-          <ToolbarDivider />
-          <IconButton label="Align left" disabled={n < 2} onClick={() => alignSelection('left')}>
-            <AlignStartVertical size={17} />
-          </IconButton>
-          <IconButton label="Align centre (horizontal)" disabled={n < 2} onClick={() => alignSelection('centerH')}>
-            <AlignCenterVertical size={17} />
-          </IconButton>
-          <IconButton label="Align right" disabled={n < 2} onClick={() => alignSelection('right')}>
-            <AlignEndVertical size={17} />
-          </IconButton>
-          <IconButton label="Align top" disabled={n < 2} onClick={() => alignSelection('top')}>
-            <AlignStartHorizontal size={17} />
-          </IconButton>
-          <IconButton label="Align middle (vertical)" disabled={n < 2} onClick={() => alignSelection('centerV')}>
-            <AlignCenterHorizontal size={17} />
-          </IconButton>
-          <IconButton label="Align bottom" disabled={n < 2} onClick={() => alignSelection('bottom')}>
-            <AlignEndHorizontal size={17} />
-          </IconButton>
-          <IconButton label="Distribute horizontally" disabled={n < 3} onClick={() => distributeSelection('h')}>
-            <AlignHorizontalDistributeCenter size={17} />
-          </IconButton>
-          <IconButton label="Distribute vertically" disabled={n < 3} onClick={() => distributeSelection('v')}>
-            <AlignVerticalDistributeCenter size={17} />
-          </IconButton>
-          <ToolbarDivider />
-          <IconButton label="Duplicate" shortcut={`${MOD}+D`} disabled={n === 0} onClick={duplicateSelection}>
-            <Copy size={17} />
-          </IconButton>
-          <IconButton label="Merge two adjacent stalls" disabled={!canMerge} onClick={mergeSelection}>
-            <Combine size={17} />
-          </IconButton>
-          <IconButton label="Split top / bottom" disabled={!canSplitStall(single, 'h', grid)} onClick={() => splitSelection('h')}>
-            <SquareSplitVertical size={17} />
-          </IconButton>
-          <IconButton label="Split left / right" disabled={!canSplitStall(single, 'v', grid)} onClick={() => splitSelection('v')}>
-            <SquareSplitHorizontal size={17} />
-          </IconButton>
-          <IconButton
-            label="Delete selection"
-            shortcut="Delete"
-            disabled={n === 0 && editor.annotationId === null}
-            onClick={() => (editor.annotationId !== null ? deleteAnnotation(editor.annotationId) : deleteStalls(editor.stallIds))}
-          >
-            <Trash2 size={17} />
-          </IconButton>
-          <ToolbarDivider />
-          <IconButton label="Undo" shortcut={`${MOD}+Z`} disabled={!canUndo} onClick={undo}>
-            <Undo2 size={17} />
-          </IconButton>
-          <IconButton label="Redo" shortcut={`${MOD}+Shift+Z`} disabled={!canRedo} onClick={redo}>
-            <Redo2 size={17} />
-          </IconButton>
+          {canManage && (
+            <>
+              <Button size="sm" variant="primary" icon={<LayoutGrid size={14} />} onClick={() => openModal({ kind: 'generateStalls', hangarId })}>
+                Generate
+              </Button>
+              <IconButton label="Add stall" onClick={() => openModal({ kind: 'addStall', hangarId })}>
+                <SquarePlus size={17} />
+              </IconButton>
+              <IconButton label="Add marker" onClick={() => openModal({ kind: 'annotation', hangarId, annotationId: null })}>
+                <MapPin size={17} />
+              </IconButton>
+              <ToolbarDivider />
+              <IconButton label="Align left" disabled={n < 2} onClick={() => alignSelection('left')}>
+                <AlignStartVertical size={17} />
+              </IconButton>
+              <IconButton label="Align centre (horizontal)" disabled={n < 2} onClick={() => alignSelection('centerH')}>
+                <AlignCenterVertical size={17} />
+              </IconButton>
+              <IconButton label="Align right" disabled={n < 2} onClick={() => alignSelection('right')}>
+                <AlignEndVertical size={17} />
+              </IconButton>
+              <IconButton label="Align top" disabled={n < 2} onClick={() => alignSelection('top')}>
+                <AlignStartHorizontal size={17} />
+              </IconButton>
+              <IconButton label="Align middle (vertical)" disabled={n < 2} onClick={() => alignSelection('centerV')}>
+                <AlignCenterHorizontal size={17} />
+              </IconButton>
+              <IconButton label="Align bottom" disabled={n < 2} onClick={() => alignSelection('bottom')}>
+                <AlignEndHorizontal size={17} />
+              </IconButton>
+              <IconButton label="Distribute horizontally" disabled={n < 3} onClick={() => distributeSelection('h')}>
+                <AlignHorizontalDistributeCenter size={17} />
+              </IconButton>
+              <IconButton label="Distribute vertically" disabled={n < 3} onClick={() => distributeSelection('v')}>
+                <AlignVerticalDistributeCenter size={17} />
+              </IconButton>
+              <ToolbarDivider />
+              <IconButton label="Duplicate" shortcut={`${MOD}+D`} disabled={n === 0} onClick={duplicateSelection}>
+                <Copy size={17} />
+              </IconButton>
+              <IconButton label="Merge two adjacent stalls" disabled={!canMerge} onClick={mergeSelection}>
+                <Combine size={17} />
+              </IconButton>
+              <IconButton label="Split top / bottom" disabled={!canSplitStall(single, 'h', grid)} onClick={() => splitSelection('h')}>
+                <SquareSplitVertical size={17} />
+              </IconButton>
+              <IconButton label="Split left / right" disabled={!canSplitStall(single, 'v', grid)} onClick={() => splitSelection('v')}>
+                <SquareSplitHorizontal size={17} />
+              </IconButton>
+              <IconButton
+                label="Delete selection"
+                shortcut="Delete"
+                disabled={n === 0 && editor.annotationId === null}
+                onClick={() => (editor.annotationId !== null ? deleteAnnotation(editor.annotationId) : deleteStalls(editor.stallIds))}
+              >
+                <Trash2 size={17} />
+              </IconButton>
+              <ToolbarDivider />
+              <IconButton label="Undo" shortcut={`${MOD}+Z`} disabled={!canUndo} onClick={undo}>
+                <Undo2 size={17} />
+              </IconButton>
+              <IconButton label="Redo" shortcut={`${MOD}+Shift+Z`} disabled={!canRedo} onClick={redo}>
+                <Redo2 size={17} />
+              </IconButton>
+            </>
+          )}
           <IconButton label="Show dimensions" shortcut="M" active={showDimensions} onClick={() => setShowDimensions(!showDimensions)}>
             <Ruler size={17} />
+          </IconButton>
+          <IconButton
+            label={showSafetyMarkers ? 'Hide safety markers (CCTV, Fire Exit)' : 'Show safety markers (CCTV, Fire Exit)'}
+            active={showSafetyMarkers}
+            onClick={() => setShowSafetyMarkers(!showSafetyMarkers)}
+          >
+            <ShieldAlert size={17} />
           </IconButton>
           <IconButton label="Pan tool" shortcut="hold Space" active={panMode} onClick={() => setPanMode((p) => !p)}>
             <Hand size={17} />

@@ -1,6 +1,6 @@
 import { memo, useMemo } from 'react';
 import { annotationMeta, STATUS_LABELS } from '../domain/constants';
-import { formatSize, groundLocation, inferSide, sideLabel } from '../domain/site';
+import { formatSize, groundLocation, inferSide, sideLabel, visibleAnnotations } from '../domain/site';
 import type { ExhibitionGround, Hangar, LayoutAnnotation, Stall, StallLayoutData } from '../domain/types';
 import { useLayoutStore } from '../store/layoutStore';
 
@@ -76,11 +76,15 @@ export const GroundA11yList = memo(function GroundA11yList({ data }: { data: Sta
   const sel = useLayoutStore((s) => s.groundSelection);
   const selectGround = useLayoutStore((s) => s.selectGround);
   const openEditor = useLayoutStore((s) => s.openEditor);
+  const showSafetyMarkers = useLayoutStore((s) => s.showSafetyMarkers);
   const byHangar = useMemo(() => {
     const m = new Map<number, Stall[]>();
     for (const s of data.stalls) (m.get(s.hangarId) ?? m.set(s.hangarId, []).get(s.hangarId)!).push(s);
     return m;
   }, [data.stalls]);
+  // Mirrors what's actually drawn (see canvas/GroundStage.tsx) — a hidden
+  // safety marker shouldn't be announced/reachable via this list either.
+  const annots = useMemo(() => visibleAnnotations(data.annotations, showSafetyMarkers), [data.annotations, showSafetyMarkers]);
   return (
     <nav className={listClass} aria-label="Layout objects">
       <p className="px-2 pb-1 text-xs font-semibold text-slate-500">Layout objects — Enter selects, Enter again on a hangar opens it</p>
@@ -98,9 +102,9 @@ export const GroundA11yList = memo(function GroundA11yList({ data }: { data: Sta
               >
                 {hangarAriaLabel(h, stalls.length)}
               </button>
-              {data.annotations.some((a) => a.hangarId === h.id) && (
+              {annots.some((a) => a.hangarId === h.id) && (
                 <ul className="pl-3" aria-label={`Markers in ${h.name}`}>
-                  {data.annotations
+                  {annots
                     .filter((a) => a.hangarId === h.id)
                     .map((a) => (
                       <li key={`a${a.id}`}>
@@ -137,7 +141,7 @@ export const GroundA11yList = memo(function GroundA11yList({ data }: { data: Sta
             </li>
           );
         })}
-        {data.annotations
+        {annots
           .filter((a) => a.hangarId === null)
           .map((a) => (
             <li key={`a${a.id}`}>
@@ -162,6 +166,9 @@ export const EditorA11yList = memo(function EditorA11yList({ hangar, stalls, ann
   const setEditorStalls = useLayoutStore((s) => s.setEditorStalls);
   const toggleEditorStall = useLayoutStore((s) => s.toggleEditorStall);
   const setEditorAnnotation = useLayoutStore((s) => s.setEditorAnnotation);
+  const showSafetyMarkers = useLayoutStore((s) => s.showSafetyMarkers);
+  // Mirrors what's actually drawn (see canvas/HangarEditorStage.tsx).
+  const visibleAnnots = useMemo(() => visibleAnnotations(annotations, showSafetyMarkers), [annotations, showSafetyMarkers]);
   return (
     <nav className={listClass} aria-label={`Objects in ${hangar.name}`}>
       <p className="px-2 pb-1 text-xs font-semibold text-slate-500">Enter selects · Shift+Enter adds to selection · arrows nudge</p>
@@ -178,7 +185,7 @@ export const EditorA11yList = memo(function EditorA11yList({ hangar, stalls, ann
             </button>
           </li>
         ))}
-        {annotations.map((a) => (
+        {visibleAnnots.map((a) => (
           <li key={`a${a.id}`}>
             <button type="button" className={itemClass} aria-pressed={editor.annotationId === a.id} onClick={() => setEditorAnnotation(a.id)}>
               {annotationAriaLabel(a)}

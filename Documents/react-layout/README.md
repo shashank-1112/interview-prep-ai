@@ -144,24 +144,34 @@ Shortcuts pause while a text field is focused or a dialog is open.
 ```ts
 interface LayoutRepository {
   load(): Promise<{ data: StallLayoutData | null; source: 'current' | 'migrated' | 'default' | 'empty'; fromVersion: number | null }>;
-  save(data: StallLayoutData): Promise<void>;
+  /** May return the canonical saved copy (real ids for anything sent as new) — the store adopts it when one comes back. */
+  save(data: StallLayoutData): Promise<StallLayoutData | void>;
   reset(): Promise<void>;
   getDefaultLayout(): StallLayoutData;
 }
 ```
 
-The default `LocalStorageLayoutRepository` uses the Angular app's keys: `gs_stall_layout_v3`, with automatic migration from `gs_stall_layout_v2`. It validates payloads with zod and skips corrupt entries. Adding a schema version means adding a `STORAGE_KEYS` entry and a `MIGRATIONS` step.
+`LocalStorageLayoutRepository` and `MemoryLayoutRepository` still exist (exercised directly by `src/test/*` and `src/repository/*.test.ts`) but are no longer the default entry point. `LocalStorageLayoutRepository` uses the Angular app's keys: `gs_stall_layout_v3`, with automatic migration from `gs_stall_layout_v2`.
 
-To use the .NET API, implement the interface, for example with `fetch` for load and save and a SignalR hub for live updates. Then pass that implementation in `src/main.tsx`. Components and canvases never touch storage, so nothing else changes. `layoutDataSchema` in `domain/schema.ts` can validate API responses too. No HTTP or SignalR implementation ships yet, because the API contract wasn't available to verify against.
+**The default is now `ApiLayoutRepository`** (`src/repository/apiLayoutRepository.ts`), backed by the .NET `Modules.Layout` module (`GET/PUT/DELETE /api/layout/{exhibitionId}`). It's constructed per-exhibition — see `PlannerRoot.tsx` (`src/PlannerRoot.tsx`), which sits inside `AuthGate` in `main.tsx`: it calls `GET /api/layout/exhibitions` for the picker, then constructs `new ApiLayoutRepository(exhibitionId, authorizedFetch)` and mounts `<App key={exhibitionId}>` once one is chosen. `authorizedFetch` (from `useAuth()`, `src/auth/AuthContext.tsx`) attaches the bearer token and retries once on a 401.
+
+Two things this repository has to do that the local ones don't:
+- **Id round-trip.** The backend upserts by id and prunes anything missing from the payload; anything the client sent as new (id 0, or an id it never actually got back from a prior save) gets a real server-assigned id. `save()` returns that canonical copy, and `saveNow()` (`store/layoutStore.ts`) adopts it into `data` directly — not through `commit()` — since it's a save-driven correction, not a user edit.
+- **RowVersion.** Tracked privately on the repository instance (never in domain data), sent back on every `save()` for optimistic concurrency; a mismatch means someone else saved this layout first.
+
+`Stall.stallBookingId` (optional) exists purely to round-trip a stall's booking assignment through this save cycle unchanged — set only by the assign/unassign flow (not yet wired into the UI; the endpoints already exist server-side: `POST`/`DELETE /api/layout/{exhibitionId}/stalls/{stallId}/assign`).
+
+e2e tests exercise this real code path too, not a bypass — `e2e/helpers.ts`'s `boot()` mocks `**/api/layout/*` with an in-memory, stateful fake (GET/PUT/DELETE all behave like the real API, including 404 for "no layout yet"), rather than seeding `localStorage` directly.
 
 ## Behaviour notes and deviations
 
 - **Ported rules unchanged:** stall numbering, merge (two adjacent available stalls), split (halves with prices halved, suffixes `-A`/`-B`), duplicate naming, generate-stall skipping, bulk status clearing exhibitor names, hangar validation and colours.
 - **Opening a hangar** is a double-click rather than a single click. A single click selects, which the Transformer needs for resizing.
 - **Clear All** is undoable, and a cleared layout stays empty after reload. The Angular app re-seeded the demo data. A `gs_stall_layout_cleared` marker records the cleared state.
-- **Booking transitions** now push undo snapshots. Reserve and Book confirm through the inline exhibitor-name form, as before. Block, Unblock and both cancellations use a confirm dialog.
+- **Booking transitions** now push undo snapshots. Block, Unblock and both cancellations use a confirm dialog. Reserve/Book's free-text exhibitor-name form is still there, but only as the fallback for a repository that isn't API-backed (LocalStorage/Memory — no real bookings to assign). With `ApiLayoutRepository`, an `available` stall's QuickActions shows a single **Assign** action instead: a dropdown of real, unassigned bookings for this exhibition (`GET .../assignable-bookings`), and picking one calls `POST .../stalls/{id}/assign` — the resulting reserved-vs-booked status comes from the booking's own approval state, not a choice the admin makes. Cancelling a stall that's actually linked to a booking calls `DELETE .../assign` (see `store/actions.ts`'s `unassignRealBooking`) so it's freed up for reassignment, not just cleared locally.
 - **Duplicate** copies the whole multi-selection as a block. It uses the original placement rule: to the right of the selection, otherwise below it.
 - **Ground markers** are auto-placed clear of hangars and their labels.
+- **Safety markers** (CCTV, Fire Exit — `domain/site.ts`'s `SAFETY_MARKER_TYPES`) are placed the same way as any other marker (inside a hangar or at ground level), but can be hidden as a group: the "safety markers" toggle in the header (and in the hangar editor's own toolbar) is purely a display filter — `domain/site.ts`'s `visibleAnnotations()` — it never touches `data.annotations` itself, so placement rules, collision checks and fit-to-content bounds are unaffected by whether they're currently shown.
 - **Undo history** lives in the store's `commit()` rather than a generic Zustand middleware. Only layout data is snapshotted, not UI state.
 - **Wire compatibility of open sides:** `Stall.openSides` is a new, optional field. Stalls without it are fully walled, so old data is unchanged, but the .NET API must accept or at least round-trip the field.
 - **Wire compatibility of site items:** the .NET API and the Angular app must accept the new `AnnotationType` values `'road'`, `'parking'`, `'gift-counter'` and `'washroom'`, as well as negative annotation coordinates. The Angular renderer has no colours for these types, so it would fail on them.

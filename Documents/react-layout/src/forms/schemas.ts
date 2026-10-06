@@ -14,11 +14,9 @@ const nonNeg = () => num().min(0, 'Cannot be negative.');
 const atLeast1 = () => num().int('Whole number.').min(1, 'At least 1.');
 const required = () => z.string().trim().min(1, 'Required.');
 const corner = z.enum(['top-left', 'top-right', 'bottom-left', 'bottom-right']);
-const status = z.enum(['available', 'reserved', 'booked', 'blocked']);
+const status = z.enum(['available', 'reserved', 'booked', 'allocated', 'blocked']);
 
 export const generateGroundSchema = z.object({
-  exhibitionName: required(),
-  venueName: required(),
   unit: z.enum(['meter', 'feet']),
   width: positive(),
   height: positive(),
@@ -63,6 +61,7 @@ export const generateStallsSchema = z
     stallType: required(),
     basePrice: nonNeg(),
     cornerOrientation: corner,
+    isBillable: z.boolean(),
     walls: sides,
     wallGap: num(),
     aisle: num(),
@@ -97,6 +96,7 @@ export const stallEditSchema = z
     status,
     exhibitorName: z.string(),
     cornerOrientation: corner,
+    isBillable: z.boolean(),
     openSides: z.array(z.enum(['top', 'right', 'bottom', 'left'])).optional(),
   })
   .superRefine((v, ctx) => {

@@ -107,23 +107,34 @@ test('align, duplicate, merge and split from the toolbar', async ({ page }) => {
   expect(merged).toMatchObject({ width: 4, height: 4, basePrice: 65000 });
 });
 
-test('booking workflow: reserve, book, cancel with confirmation', async ({ page }) => {
+test('booking workflow: assign a real booking, then cancel with confirmation', async ({ page }) => {
   const b = center(await nodeBox(page, 'editor', '#stall-1'));
   await page.mouse.click(b.x, b.y);
   const panel = page.getByRole('complementary', { name: 'Selection details' });
-  await panel.getByRole('button', { name: 'Reserve' }).click();
-  await panel.getByLabel(/Exhibitor name/).fill('Acme Corp');
-  await panel.getByRole('button', { name: 'Confirm Reserve' }).click();
-  expect(await stall(page, 1)).toMatchObject({ status: 'reserved', exhibitorName: 'Acme Corp' } as never);
 
-  await panel.getByRole('button', { name: 'Book' }).click();
-  await expect(panel.getByLabel(/Exhibitor name/)).toHaveValue('Acme Corp');
-  await panel.getByRole('button', { name: 'Confirm Book' }).click();
-  expect((await stall(page, 1)).status).toBe('booked');
+  // Stall 1 starts available and API-backed (see e2e/helpers.ts's boot()), so
+  // QuickActions shows a single "Assign" action instead of free-text Reserve/Book.
+  await panel.getByRole('button', { name: 'Assign' }).click();
+  const select = panel.getByLabel(/Booking to assign/);
+  await expect(select.locator('option')).toHaveCount(3); // placeholder + 2 mock bookings
+  // Booking 501 (Acme Corp) is pre-approved in the mock — assigning it goes
+  // straight to 'booked', not 'reserved': status is derived from the real
+  // booking's approval state server-side, not chosen by the admin.
+  await select.selectOption('501');
+  await panel.getByRole('button', { name: 'Confirm Assign' }).click();
+  await expect(panel.getByRole('button', { name: 'Cancel Booking' })).toBeVisible();
+  expect(await stall(page, 1)).toMatchObject({ status: 'booked', exhibitorName: 'Acme Corp', stallBookingId: 501 } as never);
 
   await panel.getByRole('button', { name: 'Cancel Booking' }).click();
   await page.getByRole('alertdialog', { name: 'Cancel Booking' }).getByRole('button', { name: 'Cancel Booking' }).click();
-  expect(await stall(page, 1)).toMatchObject({ status: 'available', exhibitorName: null } as never);
+  // Unassign is a real (async) API call now, unlike the rest of this test's
+  // purely-local undo/redo — wait for the panel to reflect it before reading state.
+  await expect(panel.getByRole('button', { name: 'Assign' })).toBeVisible();
+  expect(await stall(page, 1)).toMatchObject({ status: 'available', exhibitorName: null, stallBookingId: undefined } as never);
+
+  // Cancelling really unassigned it server-side — the booking is offered again.
+  await panel.getByRole('button', { name: 'Assign' }).click();
+  await expect(panel.getByLabel(/Booking to assign/).locator('option')).toHaveCount(3);
 });
 
 test('Esc clears the selection, then closes the editor', async ({ page }) => {

@@ -1,4 +1,4 @@
-import type { CornerOrientation, Rect } from './types';
+import type { CornerOrientation, Point, Rect } from './types';
 
 const EPS = 1e-6;
 
@@ -37,6 +37,74 @@ export function rectsIntersect(a: Rect, b: Rect): boolean {
 
 export function rectContainsPoint(r: Rect, x: number, y: number): boolean {
   return x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height;
+}
+
+// ── Polygon geometry (ground boundary — see domain/site.ts's activeBoundary) ────────────────
+
+function cross(o: Point, a: Point, b: Point): number {
+  return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+}
+
+function segmentsProperlyIntersect(p1: Point, p2: Point, p3: Point, p4: Point): boolean {
+  const d1 = cross(p3, p4, p1);
+  const d2 = cross(p3, p4, p2);
+  const d3 = cross(p1, p2, p3);
+  const d4 = cross(p1, p2, p4);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+}
+
+/**
+ * True if any two non-adjacent edges properly cross. Mirrors the backend's
+ * LayoutSaveService.IsSelfIntersecting exactly (same algorithm) so a boundary rejected by one
+ * is rejected by the other. Deliberately simple — doesn't special-case edges that merely touch
+ * or overlap collinearly.
+ */
+export function isSelfIntersectingPolygon(points: readonly Point[]): boolean {
+  const n = points.length;
+  if (n < 4) return false;
+  for (let i = 0; i < n; i++) {
+    const a1 = points[i]!;
+    const a2 = points[(i + 1) % n]!;
+    for (let j = i + 1; j < n; j++) {
+      const adjacent = j === i + 1 || (i === 0 && j === n - 1);
+      if (adjacent) continue;
+      if (segmentsProperlyIntersect(a1, a2, points[j]!, points[(j + 1) % n]!)) return true;
+    }
+  }
+  return false;
+}
+
+/** Ray-casting point-in-polygon test. Points exactly on an edge may read either way — not a concern for the warning-only checks this backs. */
+export function pointInPolygon(point: Point, polygon: readonly Point[]): boolean {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const pi = polygon[i]!;
+    const pj = polygon[j]!;
+    const crosses = pi.y > point.y !== pj.y > point.y && point.x < ((pj.x - pi.x) * (point.y - pi.y)) / (pj.y - pi.y) + pi.x;
+    if (crosses) inside = !inside;
+  }
+  return inside;
+}
+
+function distanceToSegment(p: Point, a: Point, b: Point): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lenSq = dx * dx + dy * dy;
+  const t = lenSq < EPS ? 0 : clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq, 0, 1);
+  const cx = a.x + t * dx;
+  const cy = a.y + t * dy;
+  return Math.hypot(p.x - cx, p.y - cy);
+}
+
+/** Shortest distance from a point to any edge of the (closed) polygon. */
+export function distanceToPolygonEdges(point: Point, polygon: readonly Point[]): number {
+  let min = Infinity;
+  for (let i = 0; i < polygon.length; i++) {
+    const a = polygon[i]!;
+    const b = polygon[(i + 1) % polygon.length]!;
+    min = Math.min(min, distanceToSegment(point, a, b));
+  }
+  return min;
 }
 
 export function boundingBox(rects: readonly Rect[]): Rect | null {

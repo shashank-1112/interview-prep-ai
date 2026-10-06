@@ -1,10 +1,10 @@
 import type Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Group, Layer, Rect, Stage, Text, Transformer } from 'react-konva';
+import { Group, Layer, Line, Rect, Stage, Text, Transformer } from 'react-konva';
 import { boundingBox, clamp, rectContainsPoint, rectsIntersect, snap } from '../domain/geometry';
 import { hangarContentExtent, minSizeFor } from '../domain/layoutOps';
-import { annotationDragBounds, formatLength, groundLocation, isOutsideGround, outsideReach, placementRule, siteBounds } from '../domain/site';
+import { annotationDragBounds, formatLength, groundLocation, isOutsideGround, outsideReach, placementRule, setbackViolation, siteBounds, visibleAnnotations } from '../domain/site';
 import type { Hangar, LayoutAnnotation, LayoutUnit, Stall, StallLayoutData } from '../domain/types';
 import { useElementSize } from '../hooks/useElementSize';
 import { useZoomPan } from '../hooks/useZoomPan';
@@ -14,7 +14,7 @@ import { AnnotationShape } from './AnnotationShape';
 import { DimensionLine } from './DimensionLine';
 import { GridShape } from './GridShape';
 import { hideSizeReadout, showSizeReadout, SizeReadout } from './SizeReadout';
-import { makeBoundBoxFunc, smartCache, TRANSFORMER_STYLE } from './konvaUtils';
+import { makeBoundBoxFunc, scheduleSmartCache, TRANSFORMER_STYLE } from './konvaUtils';
 import { StallShape } from './StallShape';
 import { toPx, toUnits } from './units';
 import { registerViewport } from './viewportRegistry';
@@ -32,6 +32,8 @@ interface HangarNodeProps {
   markers: LayoutAnnotation[];
   selected: boolean;
   selectedStallId: number | null;
+  /** Any corner is within the ground's setback distance of its boundary — a warning only, never blocking. */
+  setbackWarning: boolean;
   editMode: boolean;
   zoom: number;
   gridPx: number;
@@ -57,6 +59,7 @@ const HangarNode = memo(function HangarNode({
   markers,
   selected,
   selectedStallId,
+  setbackWarning,
   editMode,
   zoom,
   gridPx,
@@ -74,7 +77,10 @@ const HangarNode = memo(function HangarNode({
   const labelSize = Math.min(w, h) * 0.07;
 
   useEffect(() => {
-    smartCache(previewRef.current, zoom);
+    // Queued, not immediate — a ground with many hangars mounts them all in the same commit,
+    // and caching every one synchronously would block first paint. See konvaUtils.ts's
+    // scheduleSmartCache doc comment and LAYOUT_PHASE1_DECISIONS.md item 6.
+    scheduleSmartCache(previewRef.current, zoom);
   }, [stalls, markers, selectedStallId, zoom, unit]);
 
   const handleClick = (e: KonvaEventObject<MouseEvent>) => {
@@ -131,8 +137,9 @@ const HangarNode = memo(function HangarNode({
         width={w}
         height={h}
         fill="#f8fafc"
-        stroke={selected ? '#2563eb' : '#64748b'}
-        strokeWidth={toPx(selected ? 0.2 : 0.1)}
+        stroke={selected ? '#2563eb' : setbackWarning ? '#d97706' : '#64748b'}
+        strokeWidth={toPx(selected ? 0.2 : setbackWarning ? 0.16 : 0.1)}
+        dash={!selected && setbackWarning ? [toPx(0.3), toPx(0.2)] : undefined}
         cornerRadius={toPx(0.15)}
         shadowColor="#0f172a"
         shadowOpacity={selected ? 0.18 : 0.08}
@@ -174,11 +181,13 @@ const HangarNode = memo(function HangarNode({
 const EMPTY_STALLS: Stall[] = [];
 const NO_INSIDE = { bottom: false, right: false };
 const EMPTY_MARKERS: LayoutAnnotation[] = [];
+const EMPTY_IDS: ReadonlySet<number> = new Set();
 
 export function GroundStage({ data }: { data: StallLayoutData }) {
   const { ground, hangars, stalls, annotations } = data;
   const editMode = useLayoutStore((s) => s.editMode);
   const showDimensions = useLayoutStore((s) => s.showDimensions);
+  const showSafetyMarkers = useLayoutStore((s) => s.showSafetyMarkers);
   const selection = useLayoutStore((s) => s.groundSelection);
   const fitRequest = useLayoutStore((s) => s.fitRequest);
   const selectGround = useLayoutStore((s) => s.selectGround);
@@ -196,6 +205,18 @@ export function GroundStage({ data }: { data: StallLayoutData }) {
   const gridPx = toPx(ground.gridSize);
   const groundPx = useMemo(() => ({ width: toPx(ground.width), height: toPx(ground.height) }), [ground.width, ground.height]);
   const minPx = toPx(minSizeFor(ground));
+
+  // Custom boundary (LAYOUT_PHASE1_DECISIONS.md item 2) — purely a drawn overlay + a setback
+  // warning source. groundPx/gridSize/siteBounds etc. all keep working in the plain
+  // width×height rectangle's coordinate space regardless of whether a custom boundary is set.
+  const boundaryPx = useMemo(
+    () => (ground.boundary && ground.boundary.length >= 3 ? ground.boundary.flatMap((p) => [toPx(p.x), toPx(p.y)]) : null),
+    [ground.boundary],
+  );
+  const setbackWarningIds = useMemo(
+    () => (ground.setbackDistance ? new Set(hangars.filter((h) => setbackViolation(h, ground)).map((h) => h.id)) : EMPTY_IDS),
+    [hangars, ground],
+  );
 
   const stallsByHangar = useMemo(() => {
     const m = new Map<number, Stall[]>();
@@ -217,6 +238,16 @@ export function GroundStage({ data }: { data: StallLayoutData }) {
     }
     return m;
   }, [annotations]);
+  // For rendering only — groundAnnots/markersByHangar above stay unfiltered
+  // since they also feed fit-to-content bounds, outsideReach, and selection
+  // lookups; hiding a marker must never change those.
+  const visibleGroundAnnots = useMemo(() => visibleAnnotations(groundAnnots, showSafetyMarkers), [groundAnnots, showSafetyMarkers]);
+  const visibleMarkersByHangar = useMemo(() => {
+    if (showSafetyMarkers) return markersByHangar;
+    const m = new Map<number, LayoutAnnotation[]>();
+    for (const [id, list] of markersByHangar) m.set(id, visibleAnnotations(list, showSafetyMarkers));
+    return m;
+  }, [markersByHangar, showSafetyMarkers]);
   const site = useMemo(() => siteBounds(ground, annotations), [ground, annotations]);
   const sitePx = useMemo(() => ({ x: toPx(site.x), y: toPx(site.y), width: toPx(site.width), height: toPx(site.height) }), [site]);
   /**
@@ -519,6 +550,9 @@ export function GroundStage({ data }: { data: StallLayoutData }) {
             shadowBlur={16}
           />
           <GridShape width={groundPx.width} height={groundPx.height} step={gridPx} zoom={zoom} emphasis={editMode} />
+          {boundaryPx && (
+            <Line name="ground-boundary" points={boundaryPx} closed stroke="#0f172a" strokeWidth={toPx(0.12)} dash={[toPx(0.5), toPx(0.3)]} strokeScaleEnabled={false} listening={false} />
+          )}
         </Layer>
         <Layer>
           {hangars.map((h) => (
@@ -526,9 +560,10 @@ export function GroundStage({ data }: { data: StallLayoutData }) {
               key={h.id}
               hangar={h}
               stalls={stallsByHangar.get(h.id) ?? EMPTY_STALLS}
-              markers={markersByHangar.get(h.id) ?? EMPTY_MARKERS}
+              markers={visibleMarkersByHangar.get(h.id) ?? EMPTY_MARKERS}
               selected={selectedHangar?.id === h.id}
               selectedStallId={selectedStallHangar === h.id ? selectedStallId : null}
+              setbackWarning={setbackWarningIds.has(h.id)}
               editMode={editMode}
               zoom={zoom}
               gridPx={gridPx}
@@ -541,7 +576,7 @@ export function GroundStage({ data }: { data: StallLayoutData }) {
               onOpen={openEditor}
             />
           ))}
-          {groundAnnots.map((a) => (
+          {visibleGroundAnnots.map((a) => (
             <AnnotationShape
               key={a.id}
               annotation={a}

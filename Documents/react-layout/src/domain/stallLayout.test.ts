@@ -22,6 +22,7 @@ const base: GenerateStallsInput = {
   stallType: 'Standard',
   basePrice: 1000,
   cornerOrientation: 'top-right',
+  isBillable: true,
   walls: ['top', 'right', 'left'],
   wallGap: 0,
   aisle: 3,

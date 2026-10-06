@@ -3,10 +3,19 @@
 
 export type AppRole = 'super_admin' | 'admin' | 'sales_head' | 'sales_person' | 'food_admin' | 'finance';
 
-/** Only 'super_admin' may open the layout planner (see authorization.config.ts's
- *  protectedRouteRoles entry for appRouteUrls.stallLayoutPlanner). Keep this in sync
- *  with that entry — the two are meant to gate the exact same set of roles. */
-export const PLANNER_ROLES: readonly AppRole[] = ['super_admin'];
+/** Matches the Angular app's authorization.config.ts's layoutPlannerRoles (its
+ *  protectedRouteRoles entry for appRouteUrls.stallLayoutPlanner) and the .NET
+ *  LayoutController's ViewRoles — SuperAdmin/Admin/SalesHead/SalesPerson may all open the
+ *  planner; per-action restrictions (e.g. SalesPerson can't edit ground/hangar/stall geometry)
+ *  are enforced by the backend, not here. Keep this in sync with authorization.config.ts —
+ *  the two are meant to gate the exact same set of roles. */
+export const PLANNER_ROLES: readonly AppRole[] = ['super_admin', 'admin', 'sales_head', 'sales_person'];
+
+/** Matches the .NET LayoutController's ManageRoles — everyone in PLANNER_ROLES except
+ *  'sales_person', who can view and book/reserve but not edit ground/hangar/stall geometry.
+ *  The backend already enforces this (a disallowed call gets a 403) — gating the UI too means
+ *  sales_person never sees a control that would just fail, rather than relying on the error. */
+export const MANAGE_ROLES: readonly AppRole[] = ['super_admin', 'admin', 'sales_head'];
 
 /** Shape persisted under the shared storage key — matches Angular's StoredAuthTokens. */
 export interface StoredAuthTokens {
