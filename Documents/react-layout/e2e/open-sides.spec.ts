@@ -6,17 +6,36 @@ test.beforeEach(async ({ page }) => {
   await boot(page);
 });
 
-test('generates stalls along the walls with an island, open sides drawn dotted', async ({ page }) => {
-  // An empty hangar to fill.
+async function addEmptyHangar(page: import('@playwright/test').Page) {
   await page.getByRole('button', { name: 'Hangar', exact: true }).click();
   const hd = page.getByRole('dialog', { name: 'Add Hangar' });
   for (const [label, value] of [['Name', 'Hangar D'], ['Code', 'H-D'], ['X (m)', '28'], ['Y (m)', '18'], ['Width (m)', '24'], ['Length (m)', '20']]) {
     await hd.getByLabel(label!, { exact: true }).fill(value!);
   }
   await hd.getByRole('button', { name: 'Add hangar' }).click();
+}
 
+test('generates staggered islands by default', async ({ page }) => {
+  await addEmptyHangar(page);
   await page.getByRole('button', { name: 'Generate stalls' }).click();
   const dialog = page.getByRole('dialog', { name: 'Generate Stalls' });
+  await expect(dialog.getByTestId('plan-summary')).toContainText('30 stalls — top 8 · bottom 5 · left 5 · 2 islands (12)');
+  await dialog.getByRole('button', { name: 'Generate 30 stalls' }).click();
+  await expect(dialog).toBeHidden();
+
+  const gen = await state(page, (s) => s.data!.stalls.filter((x) => x.hangarId === 4));
+  expect(gen).toHaveLength(30);
+  // No markers — just stalls.
+  expect(await state(page, (s) => s.data!.annotations.filter((a) => a.hangarId === 4).length)).toBe(0);
+  await openEditor(page, 4);
+  expect(await page.evaluate(() => window.__layoutTest__!.stages.editor!.find('.stall').length)).toBe(30);
+});
+
+test('generates stalls along the walls with an island, open sides drawn dotted', async ({ page }) => {
+  await addEmptyHangar(page);
+  await page.getByRole('button', { name: 'Generate stalls' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Generate Stalls' });
+  await dialog.getByText('Along walls + islands').click();
   await expect(dialog.getByTestId('plan-summary')).toContainText('24 stalls — top 8 · right 5 · left 5 · 1 island (6)');
   // Preview draws the open sides dotted.
   expect(await dialog.locator('[data-testid="layout-preview"] line[stroke-dasharray]').count()).toBeGreaterThan(20);

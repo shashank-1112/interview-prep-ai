@@ -5,6 +5,7 @@ import {
   type GenerateGroundForm,
   type HangarEditForm,
 } from '../domain/types';
+import type { GroundEdit, HangarSpacing } from '../domain/layoutOps';
 import type { GenerateStallsInput } from '../domain/stallLayout';
 import type { AnnotationDraft, StallFormValues } from '../store/actions';
 
@@ -31,6 +32,17 @@ export const generateGroundSchema = z.object({
   hangarsPerRow: atLeast1(),
 }) satisfies z.ZodType<GenerateGroundForm>;
 
+export const editGroundSchema = z.object({
+  width: positive(),
+  height: positive(),
+  gridSize: positive(),
+}) satisfies z.ZodType<GroundEdit>;
+
+export const hangarSpacingSchema = z.object({
+  gapX: nonNeg(),
+  gapY: nonNeg(),
+}) satisfies z.ZodType<HangarSpacing>;
+
 export const hangarSchema = z.object({
   name: required(),
   code: required(),
@@ -46,7 +58,7 @@ const sides = z.array(z.enum(['top', 'right', 'bottom', 'left']));
 export const generateStallsSchema = z
   .object({
     hangarId: num('Select a hangar.').int().min(1, 'Select a hangar.'),
-    pattern: z.enum(['perimeter', 'grid']),
+    pattern: z.enum(['staggered', 'perimeter', 'grid']),
     rows: num(),
     columns: num(),
     prefix: required(),

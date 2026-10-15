@@ -13,9 +13,11 @@ test.describe('sales_person sees a reduced, view-plus-booking UI', () => {
 
   test('ground toolbar has no layout-editing controls', async ({ page }) => {
     const toolbar = page.getByRole('toolbar', { name: 'Layout tools' });
-    for (const label of ['Generate ground', 'Hangar', 'Stalls', 'Marker', 'Road', 'Parking', 'Edit layout']) {
+    for (const label of ['Generate ground', 'Edit ground', 'Hangar', 'Space hangars', 'Stalls', 'Marker', 'Road', 'Parking', 'Edit layout']) {
       await expect(toolbar.getByRole('button', { name: label, exact: true })).toHaveCount(0);
     }
+    await expect(page.getByRole('button', { name: 'Edit ground size' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Space hangars' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Load demo layout' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Clear all' })).toHaveCount(0);
     // View-only controls stay.

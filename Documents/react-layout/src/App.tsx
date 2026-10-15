@@ -7,6 +7,7 @@ import {
   LayoutGrid,
   MapPin,
   Move,
+  PencilRuler,
   Plus,
   Redo2,
   RotateCcw,
@@ -72,6 +73,9 @@ function Header() {
         )}
         {data && canManage && (
           <>
+            <Button size="sm" icon={<PencilRuler size={14} />} onClick={() => openModal({ kind: 'editGround' })}>
+              Edit ground
+            </Button>
             {/* "Boundary" entry point hidden for now (feature stays built — store/actions/
                 backend untouched, see GroundBoundaryForm.tsx and LAYOUT_PHASE1_DECISIONS.md
                 item 2) — re-add a button opening { kind: 'groundBoundary' } to bring it back. */}

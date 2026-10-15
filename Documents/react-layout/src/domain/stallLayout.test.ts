@@ -102,6 +102,59 @@ describe('planStallLayout — grid', () => {
   });
 });
 
+describe('planStallLayout — staggered islands (the client’s standard hall)', () => {
+  // The client's reference hall: 3 m stalls, 3 m aisle, 87.5 × 22 m.
+  const hall = { width: 87.5, height: 22 };
+  const staggered: GenerateStallsInput = { ...base, pattern: 'staggered', walls: ['top', 'bottom', 'left'] };
+  const plan = planStallLayout(hall, staggered);
+  const by = (zone: string) => plan.stalls.filter((s) => s.zone === zone);
+  const island = (x: number) => by('island').filter((s) => s.x === x).map((s) => s.y).sort((a, b) => a - b);
+
+  it('reproduces the reference hall: 133 stalls', () => {
+    expect(plan.stalls).toHaveLength(133);
+    expect(plan.counts).toMatchObject({ top: 29, bottom: 26, left: 6, right: 0, island: 72 });
+    expect(plan.islandCount).toBe(9);
+  });
+
+  it('runs the left column down to the bottom wall and stops the bottom row one aisle short of each side', () => {
+    expect(by('left').map((s) => s.y).sort((a, b) => a - b)).toEqual([3, 6, 9, 12, 15, 18]);
+    const bottomXs = by('bottom').map((s) => s.x).sort((a, b) => a - b);
+    expect(bottomXs[0]).toBe(6);
+    expect(bottomXs.at(-1)).toBe(81);
+    const ends = by('bottom').filter((s) => s.x === 6 || s.x === 81);
+    // Open onto the corner gaps; their tops are closed — a bottom-backed island sits on them.
+    expect(ends.find((s) => s.x === 6)!.openSides).toEqual(['left']);
+    expect(ends.find((s) => s.x === 81)!.openSides).toEqual(['right']);
+  });
+
+  it('packs islands from the left and backs them alternately onto the bottom and top rows', () => {
+    const xs = [...new Set(by('island').map((s) => s.x))].sort((a, b) => a - b);
+    expect(xs.filter((_, i) => i % 2 === 0)).toEqual([6, 15, 24, 33, 42, 51, 60, 69, 78]);
+    expect(island(6)).toEqual([7, 10, 13, 16]); // backs onto the bottom row (19)
+    expect(island(15)).toEqual([3, 6, 9, 12]); // backs onto the top row (3)
+    expect(island(24)).toEqual([7, 10, 13, 16]);
+    // Open on the aisle side only — the side against the wall row is closed.
+    const bottomBacked = by('island').filter((s) => s.x === 6);
+    expect(bottomBacked.find((s) => s.y === 7)!.openSides.sort()).toEqual(['left', 'top']);
+    expect(bottomBacked.find((s) => s.y === 16)!.openSides).toEqual(['left']);
+  });
+
+  it('never overlaps and stays inside the hangar', () => {
+    for (const s of plan.stalls) {
+      expect(s.x).toBeGreaterThanOrEqual(0);
+      expect(s.y).toBeGreaterThanOrEqual(0);
+      expect(s.x + s.width).toBeLessThanOrEqual(hall.width);
+      expect(s.y + s.height).toBeLessThanOrEqual(hall.height);
+    }
+    for (let i = 0; i < plan.stalls.length; i++)
+      for (let j = i + 1; j < plan.stalls.length; j++) expect(rectsOverlap(plan.stalls[i]!, plan.stalls[j]!)).toBe(false);
+  });
+
+  it('leaves the along-walls pattern unchanged', () => {
+    expect(planStallLayout(hangar, base).counts).toMatchObject({ top: 8, right: 5, left: 5, bottom: 0, island: 6 });
+  });
+});
+
 describe('uncoveredLength', () => {
   it('measures how much of a side is not touched by neighbours', () => {
     const a = { x: 0, y: 0, width: 4, height: 2 };

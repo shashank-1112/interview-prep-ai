@@ -78,6 +78,52 @@ test('persists changes through the layout API and reloads them', async ({ page }
   expect(await state(page, (s) => s.data!.hangars.find((x) => x.id === 3)!.y)).toBe(6);
 });
 
+test('edits the ground size in place, keeping hangars and stalls, and saves it', async ({ page }) => {
+  const before = await state(page, (s) => ({ hangars: s.data!.hangars.length, stalls: s.data!.stalls.length }));
+  await page.getByRole('button', { name: 'Edit ground', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Edit Ground' });
+  // Too small for Hangar C (reaches x 48): refused, nothing changes.
+  await dialog.getByLabel('Width (m)').fill('45');
+  await dialog.getByRole('button', { name: 'Save changes' }).click();
+  await expect(dialog.getByText(/Hangar C would be cut off/)).toBeVisible();
+  await dialog.getByLabel('Width (m)').fill('75');
+  await dialog.getByLabel('Length (m)').fill('50');
+  await dialog.getByRole('button', { name: 'Save changes' }).click();
+  await expect(dialog).toBeHidden();
+
+  expect(await state(page, (s) => [s.data!.ground.width, s.data!.ground.height])).toEqual([75, 50]);
+  expect(await state(page, (s) => ({ hangars: s.data!.hangars.length, stalls: s.data!.stalls.length }))).toEqual(before);
+  await expect(page.getByTestId('save-status')).toHaveText('Saved');
+  const saved = getLastPutBody(page) as { width: number; height: number; hangars: unknown[] };
+  expect([saved.width, saved.height, saved.hangars.length]).toEqual([75, 50, before.hangars]);
+});
+
+test('spaces hangars to a new gap, moving their stalls with them, and saves it', async ({ page }) => {
+  const stallsBefore = await state(page, (s) => s.data!.stalls);
+  // Lives on the Overview panel (nothing selected) and a selected hangar's panel — the toolbar is full.
+  await page.getByRole('button', { name: 'Space hangars' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Space Hangars' });
+  await dialog.getByLabel('Gap between hangars side by side (m)').fill('6');
+  await dialog.getByLabel('Gap between rows (m)').fill('4');
+  await expect(dialog.getByTestId('spacing-summary')).toContainText('2 hangars will move');
+  await dialog.getByRole('button', { name: 'Apply spacing' }).click();
+  await expect(dialog).toBeHidden();
+
+  expect(await state(page, (s) => s.data!.hangars.map((h) => [h.code, h.x, h.y]))).toEqual([
+    ['H-A', 2, 2],
+    ['H-B', 2, 22],
+    ['H-C', 32, 2],
+  ]);
+  expect(await state(page, (s) => s.data!.stalls)).toEqual(stallsBefore);
+  // The hangar's stalls are drawn inside it at its new position.
+  const frame = await nodeBox(page, 'ground', '#hangar-3 .hangar-frame');
+  const ppu = await pxPerUnit(page, 'ground');
+  expect(frame.width / ppu).toBeCloseTo(20, 0);
+  await expect(page.getByTestId('save-status')).toHaveText('Saved');
+  const saved = getLastPutBody(page) as { hangars: Array<{ id: number; x: number; y: number }> };
+  expect(saved.hangars.find((h) => h.id === 3)).toMatchObject({ x: 32, y: 2 });
+});
+
 // v2 -> v3 localStorage migration is LocalStorageLayoutRepository-specific —
 // no longer the default repository (see src/main.tsx / PlannerRoot), and
 // already covered thoroughly at the unit level in

@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Grid3x3, LayoutTemplate, Wand2 } from 'lucide-react';
+import { Grid3x3, LayoutDashboard, LayoutTemplate, Wand2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
@@ -27,6 +27,12 @@ const WALLS: { value: RectSide; label: string }[] = [
 
 const PATTERNS: { value: StallPattern; title: string; body: string; icon: React.ReactNode }[] = [
   {
+    value: 'staggered',
+    title: 'Staggered islands',
+    body: 'The standard hall: wall rows, with islands alternately backing onto the bottom and top rows, and a gap at both bottom corners.',
+    icon: <LayoutDashboard size={18} />,
+  },
+  {
     value: 'perimeter',
     title: 'Along walls + islands',
     body: 'Stalls attached to the hangar walls, back-to-back islands in the centre, aisles between. Aisle sides are left open.',
@@ -40,6 +46,12 @@ const PATTERNS: { value: StallPattern; title: string; body: string; icon: React.
   },
 ];
 
+/** Walls each wall-based pattern starts with; picking a pattern resets the wall toggles to these. */
+const PATTERN_WALLS: Partial<Record<StallPattern, RectSide[]>> = {
+  staggered: ['top', 'bottom', 'left'],
+  perimeter: ['top', 'right', 'left'],
+};
+
 export default function GenerateStallsForm({ hangarId, onClose }: { hangarId: number | null; onClose: () => void }) {
   const data = useLayoutStore((s) => s.data)!;
   const unit = UNIT_LABELS[data.ground.unit];
@@ -50,7 +62,7 @@ export default function GenerateStallsForm({ hangarId, onClose }: { hangarId: nu
     const prefix = hangar?.code.replace(/^H-/i, '') || 'A';
     return {
       hangarId: hangar?.id ?? 0,
-      pattern: 'perimeter',
+      pattern: 'staggered',
       rows: 3,
       columns: 4,
       prefix,
@@ -66,7 +78,7 @@ export default function GenerateStallsForm({ hangarId, onClose }: { hangarId: nu
       basePrice: 25000,
       cornerOrientation: 'top-right',
       isBillable: true,
-      walls: ['top', 'right', 'left'],
+      walls: [...PATTERN_WALLS.staggered!],
       wallGap: 0,
       aisle: snap(feet ? 10 : 3, data.ground.gridSize),
       islands: true,
@@ -76,7 +88,8 @@ export default function GenerateStallsForm({ hangarId, onClose }: { hangarId: nu
 
   const form = useForm<Values>({ resolver: zodResolver(generateStallsSchema), defaultValues, mode: 'onTouched' });
   const v = useWatch({ control: form.control }) as Values;
-  const perimeter = v.pattern === 'perimeter';
+  const wallBased = v.pattern !== 'grid';
+  const staggered = v.pattern === 'staggered';
   const selectedHangar = data.hangars.find((h) => h.id === Number(v.hangarId));
 
   const existing = useMemo(() => data.stalls.filter((s) => s.hangarId === selectedHangar?.id), [data.stalls, selectedHangar?.id]);
@@ -94,7 +107,7 @@ export default function GenerateStallsForm({ hangarId, onClose }: { hangarId: nu
   // Grid-only helpers.
   const fit = stallFitEstimate(selectedHangar, v);
   const requested = (Number(v.rows) || 0) * (Number(v.columns) || 0);
-  const exceeded = !perimeter && requested > fit.total;
+  const exceeded = !wallBased && requested > fit.total;
 
   const onPresetChange = (label: string) => {
     const preset = STALL_SIZE_PRESETS.find((p) => p.label === label);
@@ -119,6 +132,10 @@ export default function GenerateStallsForm({ hangarId, onClose }: { hangarId: nu
   const toggleWall = (side: RectSide) => {
     const cur = form.getValues('walls');
     form.setValue('walls', cur.includes(side) ? cur.filter((w) => w !== side) : [...cur, side], { shouldValidate: true });
+  };
+  const onPatternChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const walls = PATTERN_WALLS[e.target.value as StallPattern];
+    if (walls) form.setValue('walls', [...walls], { shouldValidate: true });
   };
   const toggleGridSide = (side: RectSide) => {
     const cur = form.getValues('openSides');
@@ -168,7 +185,7 @@ export default function GenerateStallsForm({ hangarId, onClose }: { hangarId: nu
 
           <fieldset className="col-span-full">
             <legend className="mb-1.5 text-xs font-medium text-slate-600">Layout</legend>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-3">
               {PATTERNS.map((p) => (
                 <label
                   key={p.value}
@@ -177,7 +194,7 @@ export default function GenerateStallsForm({ hangarId, onClose }: { hangarId: nu
                     v.pattern === p.value ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:bg-slate-50',
                   )}
                 >
-                  <input type="radio" value={p.value} className="sr-only" {...form.register('pattern')} />
+                  <input type="radio" value={p.value} className="sr-only" {...form.register('pattern', { onChange: onPatternChange })} />
                   <span className={cx('mt-0.5', v.pattern === p.value ? 'text-blue-700' : 'text-slate-500')} aria-hidden>
                     {p.icon}
                   </span>
@@ -196,12 +213,12 @@ export default function GenerateStallsForm({ hangarId, onClose }: { hangarId: nu
               <p className="text-xs text-slate-600" aria-live="polite" data-testid="plan-summary">
                 {describePlan(plan)}
                 {skipped > 0 && <span className="text-red-600"> · {skipped} overlap existing stalls/markers and will be skipped</span>}
-                {perimeter && plan.stalls.length > 0 && <span className="text-slate-500"> · dotted = open side</span>}
+                {wallBased && plan.stalls.length > 0 && <span className="text-slate-500"> · dotted = open side</span>}
               </p>
             </div>
           )}
 
-          {perimeter ? (
+          {wallBased ? (
             <>
               <SectionTitle>Walls & aisles</SectionTitle>
               <fieldset className="col-span-full">
@@ -224,17 +241,23 @@ export default function GenerateStallsForm({ hangarId, onClose }: { hangarId: nu
                       </button>
                     );
                   })}
-                  <label className="ml-auto inline-flex items-center gap-1.5 text-xs text-slate-700">
-                    <input type="checkbox" className="h-4 w-4 accent-blue-600" {...form.register('islands')} />
-                    Centre islands (back-to-back)
-                  </label>
+                  {!staggered && (
+                    <label className="ml-auto inline-flex items-center gap-1.5 text-xs text-slate-700">
+                      <input type="checkbox" className="h-4 w-4 accent-blue-600" {...form.register('islands')} />
+                      Centre islands (back-to-back)
+                    </label>
+                  )}
                 </div>
                 {form.formState.errors.walls?.message && (
                   <p role="alert" className="mt-1 text-xs text-red-600">
                     {form.formState.errors.walls.message}
                   </p>
                 )}
-                <p className="mt-1 text-xs text-slate-500">Leave a wall free for entry / exit (the bottom wall by default).</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {staggered
+                    ? 'The bottom row stops one aisle short of each side, leaving a way in at both bottom corners.'
+                    : 'Leave a wall free for entry / exit (the bottom wall by default).'}
+                </p>
               </fieldset>
               <NumberField form={form} name="aisle" label={`Aisle width (${unit})`} min={0} step={data.ground.gridSize} />
               <NumberField form={form} name="wallGap" label={`Gap from walls (${unit})`} min={0} step={data.ground.gridSize} hint="0 = attached" />
@@ -278,8 +301,8 @@ export default function GenerateStallsForm({ hangarId, onClose }: { hangarId: nu
             options={STALL_SIZE_PRESETS.map((p) => ({ value: p.label, label: p.label }))}
             onValueChange={onPresetChange}
           />
-          <NumberField form={form} name="stallWidth" label={perimeter ? 'Frontage (along aisle)' : 'Width'} onValueChange={onSizeEdited} />
-          <NumberField form={form} name="stallHeight" label={perimeter ? 'Depth (to wall)' : 'Length'} onValueChange={onSizeEdited} />
+          <NumberField form={form} name="stallWidth" label={wallBased ? 'Frontage (along aisle)' : 'Width'} onValueChange={onSizeEdited} />
+          <NumberField form={form} name="stallHeight" label={wallBased ? 'Depth (to wall)' : 'Length'} onValueChange={onSizeEdited} />
           <div />
 
           <SectionTitle>Type & pricing</SectionTitle>

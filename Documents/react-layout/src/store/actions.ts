@@ -17,19 +17,23 @@ import {
   mergeCandidate,
   mergeStalls,
   moveStalls,
+  resizeGround,
   setStallRects,
+  spaceHangars,
   splitStall,
   stallArea,
   withOpenSide,
   validateHangarDraft,
   type AlignEdge,
   type BulkAction,
+  type GroundEdit,
   type HangarDraft,
+  type HangarSpacing,
 } from '../domain/layoutOps';
 import { applyBookingAction, BOOKING_ACTIONS, type BookingAction } from '../domain/booking';
 import type { GenerateStallsInput } from '../domain/stallLayout';
 import { clamp, clean, findFreeSpot, isSelfIntersectingPolygon, nextId, rectsOverlap } from '../domain/geometry';
-import { annotationMeta, STATUS_LABELS } from '../domain/constants';
+import { annotationMeta, STATUS_LABELS, UNIT_LABELS } from '../domain/constants';
 import {
   atGap,
   blocksHangars,
@@ -840,6 +844,42 @@ export function setAnnotationRect(id: number, rect: Rect): boolean {
  * Returns an error message and makes no change if the polygon is invalid; null on success.
  * See domain/site.ts's activeBoundary/setbackViolation and LAYOUT_PHASE1_DECISIONS.md item 2.
  */
+/** Edit ground: resize / change grid in place. Returns an error (with the field to flag) or null. */
+export function updateGround(edit: GroundEdit): { error: string; field?: keyof GroundEdit } | null {
+  const d = data();
+  if (!d) return { error: 'Generate a ground first.' };
+  const g = d.ground;
+  if (g.width === edit.width && g.height === edit.height && g.gridSize === edit.gridSize) return null;
+  const r = resizeGround(d, edit);
+  if (!r.ok) return r.field === undefined ? { error: r.error } : { error: r.error, field: r.field as keyof GroundEdit };
+  const moved = r.value.annotations.filter((a, i) => a !== d.annotations[i]).length;
+  store().commit(() => r.value);
+  store().requestFit('ground', 'content');
+  const u = UNIT_LABELS[g.unit];
+  toast.success(
+    `Ground is now ${r.value.ground.width} × ${r.value.ground.height} ${u}` +
+      (moved ? ` — ${moved} item(s) beyond the right/bottom edge moved with it.` : '.'),
+  );
+  return null;
+}
+
+/** Space hangars: one gap side by side, one between rows. Returns an error (with the field to flag) or null. */
+export function spaceAllHangars(spacing: HangarSpacing): { error: string; field?: keyof HangarSpacing } | null {
+  const d = data();
+  if (!d) return { error: 'Generate a ground first.' };
+  const r = spaceHangars(d, spacing);
+  if (!r.ok) return r.field === undefined ? { error: r.error } : { error: r.error, field: r.field as keyof HangarSpacing };
+  const moved = r.value.hangars.filter((h, i) => h.x !== d.hangars[i]!.x || h.y !== d.hangars[i]!.y).length;
+  if (!moved) {
+    toast.info('The hangars already have this spacing.');
+    return null;
+  }
+  store().commit(() => r.value);
+  store().requestFit('ground', 'content');
+  toast.success(`Hangar spacing updated — ${moved} hangar(s) moved, with their stalls.`);
+  return null;
+}
+
 export function setGroundBoundary(points: Point[] | null, setbackDistance: number): string | null {
   const d = data();
   if (!d) return 'No layout to update.';

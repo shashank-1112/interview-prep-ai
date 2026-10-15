@@ -3,7 +3,7 @@ import type { KonvaEventObject } from 'konva/lib/Node';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Group, Layer, Line, Rect, Stage, Text, Transformer } from 'react-konva';
 import { boundingBox, clamp, rectContainsPoint, rectsIntersect, snap } from '../domain/geometry';
-import { hangarContentExtent, minSizeFor } from '../domain/layoutOps';
+import { hangarContentExtent, hangarGaps, minSizeFor } from '../domain/layoutOps';
 import { annotationDragBounds, formatLength, groundLocation, isOutsideGround, outsideReach, placementRule, setbackViolation, siteBounds, visibleAnnotations } from '../domain/site';
 import type { Hangar, LayoutAnnotation, LayoutUnit, Stall, StallLayoutData } from '../domain/types';
 import { useElementSize } from '../hooks/useElementSize';
@@ -182,6 +182,8 @@ const EMPTY_STALLS: Stall[] = [];
 const NO_INSIDE = { bottom: false, right: false };
 const EMPTY_MARKERS: LayoutAnnotation[] = [];
 const EMPTY_IDS: ReadonlySet<number> = new Set();
+/** Gap dimensions (between hangars, hangar ↔ ground edge) — pink, so they read apart from the slate sizes. */
+const GAP_COLOR = '#db2777';
 
 export function GroundStage({ data }: { data: StallLayoutData }) {
   const { ground, hangars, stalls, annotations } = data;
@@ -250,6 +252,10 @@ export function GroundStage({ data }: { data: StallLayoutData }) {
   }, [markersByHangar, showSafetyMarkers]);
   const site = useMemo(() => siteBounds(ground, annotations), [ground, annotations]);
   const sitePx = useMemo(() => ({ x: toPx(site.x), y: toPx(site.y), width: toPx(site.width), height: toPx(site.height) }), [site]);
+  const gaps = useMemo(() => (showDimensions ? hangarGaps(hangars, ground) : []), [showDimensions, hangars, ground]);
+  // Hidden while a hangar is dragged/resized — the numbers are only right again once it's dropped.
+  const gapsRef = useRef<Konva.Group>(null);
+
   /**
    * A hangar's width/height dimensions sit just outside its bottom/right edges
    * unless another hangar (or its name label) is within the ~30 screen px they need.
@@ -407,6 +413,7 @@ export function GroundStage({ data }: { data: StallLayoutData }) {
     group?.findOne('.hangar-content')?.position(rect.position());
     group?.findOne('.hangar-label')?.x(rect.x() + toPx(0.3));
     group?.findOne('.hangar-dims')?.visible(false);
+    gapsRef.current?.visible(false);
     showSizeReadout(readoutRef.current, [rect], unit);
   }, []);
 
@@ -445,6 +452,7 @@ export function GroundStage({ data }: { data: StallLayoutData }) {
       group.findOne('.hangar-content')?.position({ x: 0, y: 0 });
       group.findOne('.hangar-label')?.x(toPx(0.3));
       group.findOne('.hangar-dims')?.visible(true);
+      gapsRef.current?.visible(true);
       trRef.current?.forceUpdate();
     } else if (sel.kind === 'annotation') {
       const a = s.data?.annotations.find((x) => x.id === sel.id);
@@ -512,9 +520,11 @@ export function GroundStage({ data }: { data: StallLayoutData }) {
         onTap={onStageClick as never}
         onDragStart={(e) => {
           if (e.target === e.target.getStage()) e.target.getStage()!.container().style.cursor = 'grabbing';
+          if (e.target.name() === 'hangar') gapsRef.current?.visible(false);
         }}
         onDragEnd={(e) => {
           if (e.target === e.target.getStage()) e.target.getStage()!.container().style.cursor = '';
+          if (e.target.name() === 'hangar') gapsRef.current?.visible(true);
         }}
       >
         <Layer>
@@ -603,6 +613,16 @@ export function GroundStage({ data }: { data: StallLayoutData }) {
         </Layer>
         {showDimensions && (
           <Layer listening={false} name="ground-dimensions">
+            <Group ref={gapsRef} name="hangar-gaps">
+              {gaps.map((g, i) => {
+                const label = formatLength(g.to - g.from, ground.unit);
+                return g.axis === 'x' ? (
+                  <DimensionLine key={i} x1={toPx(g.from)} y1={toPx(g.at)} x2={toPx(g.to)} y2={toPx(g.at)} side="above" offset={0} label={label} zoom={zoom} color={GAP_COLOR} minScreenLength={12} />
+                ) : (
+                  <DimensionLine key={i} x1={toPx(g.at)} y1={toPx(g.from)} x2={toPx(g.at)} y2={toPx(g.to)} side="left" offset={0} label={label} zoom={zoom} color={GAP_COLOR} minScreenLength={12} />
+                );
+              })}
+            </Group>
             {groundDimSides.h === 'above' ? (
               <DimensionLine x1={0} y1={0} x2={groundPx.width} y2={0} side="above" label={formatLength(ground.width, ground.unit)} zoom={zoom} color="#1e293b" offset={groundDimSides.hOffset} />
             ) : (

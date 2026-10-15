@@ -12,6 +12,102 @@ beforeEach(async () => {
   await useLayoutStore.getState().init(new MemoryLayoutRepository(defaultLayout()));
 });
 
+describe('GenerateGroundForm', () => {
+  it('labels sizes with the unit, defaults the grid to 1 and calls hangar sizes approximate', async () => {
+    const GenerateGroundForm = (await import('../forms/GenerateGroundForm')).default;
+    const user = userEvent.setup();
+    render(<GenerateGroundForm onClose={() => {}} />);
+    expect(screen.getByLabelText('Width (m)')).toHaveValue(60);
+    expect(screen.getByLabelText('Length (m)')).toHaveValue(40);
+    expect(screen.getByLabelText('Grid size (m)')).toHaveValue(1);
+    expect(screen.getByLabelText('Approx hangar width (m)')).toHaveValue(27);
+    expect(screen.getByLabelText('Approx hangar length (m)')).toHaveValue(17);
+    await user.selectOptions(screen.getByLabelText('Unit'), 'feet');
+    expect(screen.getByLabelText('Width (ft)')).toBeInTheDocument();
+    expect(screen.getByLabelText('Approx hangar width (ft)')).toBeInTheDocument();
+    // Auto-fit rounds down to whole units.
+    await user.clear(screen.getByLabelText('Width (ft)'));
+    await user.type(screen.getByLabelText('Width (ft)'), '61');
+    await user.click(screen.getByRole('button', { name: 'Auto-fit size' }));
+    expect(screen.getByLabelText('Approx hangar width (ft)')).toHaveValue(27);
+  });
+});
+
+describe('EditGroundForm', () => {
+  const load = async () => (await import('../forms/EditGroundForm')).default;
+
+  it('resizes the ground in place, keeping hangars and stalls, as one undo step', async () => {
+    const EditGroundForm = await load();
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const before = useLayoutStore.getState().data!;
+    render(<EditGroundForm onClose={onClose} />);
+    expect(screen.getByLabelText('Width (m)')).toHaveValue(60);
+    expect(screen.getByLabelText('Length (m)')).toHaveValue(40);
+    expect(screen.getByLabelText('Grid size (m)')).toHaveValue(0.5);
+    expect(screen.getByText(/at least 48 × 36 m/)).toBeInTheDocument();
+    await user.clear(screen.getByLabelText('Width (m)'));
+    await user.type(screen.getByLabelText('Width (m)'), '75');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(onClose).toHaveBeenCalled();
+    const after = useLayoutStore.getState().data!;
+    expect(after.ground).toMatchObject({ width: 75, height: 40 });
+    expect(after.hangars).toEqual(before.hangars);
+    expect(after.stalls).toEqual(before.stalls);
+    useLayoutStore.getState().undo();
+    expect(useLayoutStore.getState().data!.ground.width).toBe(60);
+  });
+
+  it('shows why a size is refused, on the field that is too small', async () => {
+    const EditGroundForm = await load();
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<EditGroundForm onClose={onClose} />);
+    await user.clear(screen.getByLabelText('Length (m)'));
+    await user.type(screen.getByLabelText('Length (m)'), '30');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(await screen.findByText(/Hangar B would be cut off/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Length (m)')).toHaveAttribute('aria-invalid', 'true');
+    expect(onClose).not.toHaveBeenCalled();
+    expect(useLayoutStore.getState().data!.ground.height).toBe(40);
+  });
+});
+
+describe('SpaceHangarsForm', () => {
+  const load = async () => (await import('../forms/SpaceHangarsForm')).default;
+
+  it('starts from the current gaps, previews the move, and applies it as one undo step', async () => {
+    const SpaceHangarsForm = await load();
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const before = useLayoutStore.getState().data!;
+    render(<SpaceHangarsForm onClose={onClose} />);
+    expect(screen.getByLabelText('Gap between hangars side by side (m)')).toHaveValue(2);
+    expect(screen.getByLabelText('Gap between rows (m)')).toHaveValue(2);
+    expect(screen.getByTestId('spacing-summary')).toHaveTextContent('No change');
+    await user.clear(screen.getByLabelText('Gap between hangars side by side (m)'));
+    await user.type(screen.getByLabelText('Gap between hangars side by side (m)'), '6');
+    expect(screen.getByTestId('spacing-summary')).toHaveTextContent('1 hangar will move, with their stalls.');
+    await user.click(screen.getByRole('button', { name: 'Apply spacing' }));
+    expect(onClose).toHaveBeenCalled();
+    const after = useLayoutStore.getState().data!;
+    expect(after.hangars.find((h) => h.code === 'H-C')).toMatchObject({ x: 32, y: 2 });
+    expect(after.stalls).toEqual(before.stalls);
+    useLayoutStore.getState().undo();
+    expect(useLayoutStore.getState().data!.hangars.find((h) => h.code === 'H-C')!.x).toBe(28);
+  });
+
+  it('explains a refused spacing and blocks applying it', async () => {
+    const SpaceHangarsForm = await load();
+    const user = userEvent.setup();
+    render(<SpaceHangarsForm onClose={() => {}} />);
+    await user.clear(screen.getByLabelText('Gap between rows (m)'));
+    await user.type(screen.getByLabelText('Gap between rows (m)'), '9');
+    expect(screen.getByTestId('spacing-summary')).toHaveTextContent(/Hangar B would go past the ground edge/);
+    expect(screen.getByRole('button', { name: 'Apply spacing' })).toBeDisabled();
+  });
+});
+
 describe('GenerateStallsForm', () => {
   it('auto-fills the max grid that fits and generates stalls', async () => {
     const user = userEvent.setup();
@@ -179,13 +275,33 @@ describe('AnnotationForm review regressions', () => {
 });
 
 
-describe('Generate Stalls — walls + islands layout (whiteboard sketch)', () => {
-  it('defaults to stalls along the walls + a centre island, with a live preview', async () => {
+describe('Generate Stalls — staggered islands (default)', () => {
+  it('opens on the staggered layout and generates it', async () => {
     const { addHangar } = await import('../store/actions');
     addHangar({ name: 'Hangar D', code: 'H-D', x: 28, y: 18, width: 24, height: 20 });
     const user = userEvent.setup();
     const onClose = vi.fn();
     render(<GenerateStallsForm hangarId={4} onClose={onClose} />);
+    expect(screen.getByRole('radio', { name: /Staggered islands/ })).toBeChecked();
+    expect(screen.getByRole('button', { name: 'Bottom wall' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Right wall' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByLabelText('Centre islands (back-to-back)')).not.toBeInTheDocument();
+    expect(screen.getByTestId('plan-summary')).toHaveTextContent('30 stalls — top 8 · bottom 5 · left 5 · 2 islands (12)');
+    await user.click(screen.getByRole('button', { name: 'Generate 30 stalls' }));
+    expect(onClose).toHaveBeenCalled();
+    expect(useLayoutStore.getState().data!.stalls.filter((s) => s.hangarId === 4)).toHaveLength(30);
+  });
+});
+
+describe('Generate Stalls — walls + islands layout (whiteboard sketch)', () => {
+  it('stalls along the walls + a centre island, with a live preview', async () => {
+    const { addHangar } = await import('../store/actions');
+    addHangar({ name: 'Hangar D', code: 'H-D', x: 28, y: 18, width: 24, height: 20 });
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<GenerateStallsForm hangarId={4} onClose={onClose} />);
+    // Picking the pattern resets the wall toggles to its own defaults (top, right, left).
+    await user.click(screen.getByRole('radio', { name: /Along walls \+ islands/ }));
     expect(screen.getByTestId('plan-summary')).toHaveTextContent('24 stalls — top 8 · right 5 · left 5 · 1 island (6)');
     expect(screen.getByLabelText('Frontage (along aisle)')).toHaveValue(3);
     // Turning the bottom wall on adds a bottom row and shrinks the side columns.
@@ -203,6 +319,7 @@ describe('Generate Stalls — walls + islands layout (whiteboard sketch)', () =>
   it('asks for at least one wall or centre islands', async () => {
     const user = userEvent.setup();
     render(<GenerateStallsForm hangarId={1} onClose={() => {}} />);
+    await user.click(screen.getByRole('radio', { name: /Along walls \+ islands/ }));
     for (const w of ['Top wall', 'Right wall', 'Left wall']) await user.click(screen.getByRole('button', { name: w }));
     await user.click(screen.getByLabelText('Centre islands (back-to-back)'));
     expect(screen.getByRole('button', { name: 'Generate 0 stalls' })).toBeDisabled();

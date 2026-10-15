@@ -61,7 +61,9 @@ test('road resize via the Transformer cannot extend onto the ground', async ({ p
 });
 
 test('dimensions: ground, hangar and stall side lengths, toggled with M', async ({ page }) => {
-  const dims = () => page.evaluate(() => window.__layoutTest__!.stages.ground!.find('.dimension').length);
+  // Sizes only — the pink gap dimensions are covered by their own test below.
+  const dims = () =>
+    page.evaluate(() => window.__layoutTest__!.stages.ground!.find('.dimension').filter((d) => !d.findAncestor('.hangar-gaps')).length);
   // Ground (2) + 3 hangars × 2.
   expect(await dims()).toBe(8);
   const labels = await page.evaluate(() =>
@@ -78,6 +80,44 @@ test('dimensions: ground, hangar and stall side lengths, toggled with M', async 
   );
   expect(stallDims).toHaveLength(17 * 2);
   expect(stallDims.slice(0, 2)).toEqual(['3 m', '2 m']);
+});
+
+test('dimensions also show the gaps between hangars and to the ground edge, in pink', async ({ page }) => {
+  const gapLabels = () =>
+    page.evaluate(() => {
+      const group = window.__layoutTest__!.stages.ground!.findOne('.hangar-gaps') as Konva.Group | undefined;
+      if (!group) return null;
+      return {
+        visible: group.isVisible(),
+        labels: group.find('Text').map((t) => (t as Konva.Text).text()).sort(),
+        color: (group.findOne('Text') as Konva.Text | undefined)?.fill(),
+      };
+    });
+  // Demo: A↔C 2, A↕B 2, edges 2 × 4, plus the open space right of B (34), C (12), below C (24) and B (4).
+  expect(await gapLabels()).toEqual({
+    visible: true,
+    labels: ['12 m', '2 m', '2 m', '2 m', '2 m', '2 m', '2 m', '24 m', '34 m', '4 m'],
+    color: '#db2777',
+  });
+
+  // Toggled with the other dimensions.
+  await page.keyboard.press('m');
+  expect(await gapLabels()).toBeNull();
+  await page.keyboard.press('m');
+
+  // Hidden while a hangar is being dragged (the numbers would be stale), back once it's dropped.
+  await page.getByRole('button', { name: 'Edit layout' }).click();
+  const frame = await nodeBox(page, 'ground', '#hangar-3 .hangar-frame');
+  const ppu = await pxPerUnit(page, 'ground');
+  const from = { x: frame.x + frame.width / 2, y: frame.y + frame.height - 20 };
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(from.x + 3 * ppu, from.y, { steps: 6 });
+  expect((await gapLabels())!.visible).toBe(false);
+  await page.mouse.up();
+  const after = (await gapLabels())!;
+  expect(after.visible).toBe(true);
+  expect(after.labels).toContain('5 m'); // Hangar C moved 3 m right: A ↔ C is now 5 m
 });
 
 test('shows a live size readout while resizing a stall', async ({ page }) => {

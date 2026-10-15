@@ -15,8 +15,9 @@ import type {
   StallLayoutData,
   StallStatus,
 } from './types';
+import { annotationMeta, UNIT_LABELS } from './constants';
 import { boundingBox, clamp, clean, nextId, rectsOverlap, round2, snap } from './geometry';
-import { blocksHangars } from './site';
+import { blocksHangars, isInsideGround, isOutsideGround } from './site';
 import { planStallLayout, type GenerateStallsInput } from './stallLayout';
 
 export type Result<T> = { ok: true; value: T; warnings: string[] } | { ok: false; error: string; field?: string };
@@ -44,8 +45,9 @@ export function autoFillHangarSize(f: GenerateGroundForm): { hangarWidth: number
   const sY = Math.max(0, Number(f.startY));
   const gW = Math.max(1, Number(f.width));
   const gH = Math.max(1, Number(f.height));
-  const hW = Math.floor(((gW - 2 * sX - (numCols - 1) * gap) / numCols) * 10) / 10;
-  const hH = Math.floor(((gH - 2 * sY - (numRows - 1) * gap) / numRows) * 10) / 10;
+  // Whole units, rounded down (so the hangars always still fit); the epsilon keeps 26.9999… at 27.
+  const hW = Math.floor((gW - 2 * sX - (numCols - 1) * gap) / numCols + 1e-9);
+  const hH = Math.floor((gH - 2 * sY - (numRows - 1) * gap) / numRows + 1e-9);
   if (hW <= 0 || hH <= 0) return null;
   return { hangarWidth: hW, hangarHeight: hH };
 }
@@ -103,6 +105,227 @@ export function generateGround(f: GenerateGroundForm, exhibition: { name: string
     }
   }
   return ok({ ground, hangars, stalls: [], annotations: [] });
+}
+
+// ── Ground edit ──────────────────────────────────────────────────────────────
+
+export interface GroundEdit {
+  width: number;
+  height: number;
+  gridSize: number;
+}
+
+const GATE_TYPES: readonly LayoutAnnotation['type'][] = ['entry', 'exit', 'entry-exit'];
+
+function nameList(names: string[]): string {
+  const shown = names.slice(0, 3).join(', ');
+  return names.length > 3 ? `${shown} and ${names.length - 3} more` : shown;
+}
+
+/**
+ * Change the ground's size and grid in place, keeping every hangar, stall and marker.
+ * The origin (top-left) is fixed, so only the right and bottom edges move: ground-level
+ * items beyond those edges (roads, parking, counters outside the ground) and gates sitting on
+ * them move with the edge, keeping their distance. Everything else stays put.
+ * Refuses a size that would cut off a hangar, a marker inside the ground or a custom
+ * boundary, and a coarser grid than the smallest stall/hangar can take (its minimum size is
+ * two grid steps).
+ */
+export function resizeGround(data: StallLayoutData, edit: GroundEdit): Result<StallLayoutData> {
+  const old = data.ground;
+  const ground: ExhibitionGround = { ...old, width: clean(Number(edit.width)), height: clean(Number(edit.height)), gridSize: clean(Number(edit.gridSize)) };
+  if (!(ground.width > 0) || !(ground.height > 0) || !(ground.gridSize > 0)) return fail('Width, length and grid size must be positive.');
+  const u = UNIT_LABELS[old.unit];
+  const EPS = 1e-6;
+
+  const dW = ground.width - old.width;
+  const dH = ground.height - old.height;
+  const annotations = data.annotations.map((a) => {
+    if (a.hangarId !== null) return a;
+    const outside = isOutsideGround(a, old);
+    const gate = !outside && GATE_TYPES.includes(a.type);
+    const right = outside ? a.x >= old.width - EPS : gate && Math.abs(a.x + a.width - old.width) < EPS;
+    const below = outside ? a.y >= old.height - EPS : gate && Math.abs(a.y + a.height - old.height) < EPS;
+    if (!right && !below) return a;
+    return { ...a, x: right ? clean(a.x + dW) : a.x, y: below ? clean(a.y + dH) : a.y };
+  });
+
+  // Everything that sits inside the ground and doesn't move must still fit.
+  const staying = [
+    ...data.hangars.map((h) => ({ name: h.name, r: h as Rect })),
+    ...annotations
+      .filter((a, i) => a.hangarId === null && isInsideGround(data.annotations[i]!, old))
+      .map((a) => ({ name: a.label || annotationMeta(a.type).label, r: a as Rect })),
+  ];
+  const cut = staying.filter(({ r }) => !isInsideGround(r, ground));
+  if (cut.length) {
+    const needW = clean(Math.max(...staying.map(({ r }) => r.x + r.width)));
+    const needH = clean(Math.max(...staying.map(({ r }) => r.y + r.height)));
+    return fail(
+      `${nameList(cut.map((c) => c.name))} would be cut off — the ground must be at least ${needW} × ${needH} ${u}.`,
+      ground.width < needW - EPS ? 'width' : 'height',
+    );
+  }
+  if (old.boundary && old.boundary.length >= 3 && old.boundary.some((p) => p.x > ground.width + EPS || p.y > ground.height + EPS)) {
+    return fail('The custom ground boundary reaches beyond the new size.');
+  }
+
+  for (const [type, plural] of [['road', 'Roads'], ['parking', 'Parking areas']] as const) {
+    const items = annotations.filter((a) => a.hangarId === null && a.type === type);
+    for (let i = 0; i < items.length; i++)
+      for (let j = i + 1; j < items.length; j++)
+        if (rectsOverlap(items[i]!, items[j]!)) return fail(`${plural} "${items[i]!.label}" and "${items[j]!.label}" would overlap at this size.`);
+  }
+
+  if (ground.gridSize > old.gridSize + EPS) {
+    const sizes = [...data.hangars, ...data.stalls].map((r) => Math.min(r.width, r.height));
+    const smallest = sizes.length ? Math.min(...sizes) : Infinity;
+    if (ground.gridSize * 2 > smallest + EPS) {
+      return fail(
+        `A ${ground.gridSize} ${u} grid is too coarse: the smallest stall or hangar side is ${clean(smallest)} ${u}, so the grid can be at most ${clean(smallest / 2)} ${u}.`,
+        'gridSize',
+      );
+    }
+  }
+
+  return ok({ ...data, ground, annotations });
+}
+
+// ── Hangar spacing ───────────────────────────────────────────────────────────
+
+export interface HangarSpacing {
+  /** Gap between hangars side by side in a row. */
+  gapX: number;
+  /** Gap between one row of hangars and the next. */
+  gapY: number;
+}
+
+/** Hangars grouped into rows, top to bottom, each row left to right. Hangars whose vertical extents overlap share a row. */
+export function hangarRows(hangars: readonly Hangar[]): Hangar[][] {
+  const rows: Hangar[][] = [];
+  let bottom = -Infinity;
+  for (const h of [...hangars].sort((a, b) => a.y - b.y || a.x - b.x)) {
+    const row = rows.at(-1);
+    if (row && h.y < bottom - 1e-6) {
+      row.push(h);
+      bottom = Math.max(bottom, h.y + h.height);
+    } else {
+      rows.push([h]);
+      bottom = h.y + h.height;
+    }
+  }
+  return rows.map((r) => r.sort((a, b) => a.x - b.x));
+}
+
+/** The most common gap now (side by side / between rows), or null when there is no such pair. */
+export function currentHangarSpacing(hangars: readonly Hangar[]): { gapX: number | null; gapY: number | null } {
+  const rows = hangarRows(hangars);
+  const mostCommon = (gaps: number[]) => {
+    if (!gaps.length) return null;
+    const tally = new Map<number, number>();
+    for (const g of gaps.map((v) => round2(v))) tally.set(g, (tally.get(g) ?? 0) + 1);
+    return [...tally].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]![0];
+  };
+  const xs = rows.flatMap((r) => r.slice(1).map((h, i) => h.x - (r[i]!.x + r[i]!.width)));
+  const ys = rows.slice(1).map((r, i) => Math.min(...r.map((h) => h.y)) - Math.max(...rows[i]!.map((h) => h.y + h.height)));
+  return { gapX: mostCommon(xs), gapY: mostCommon(ys) };
+}
+
+export interface HangarGap {
+  /** 'x' = a horizontal gap (measured left → right), 'y' = a vertical gap (top → bottom). */
+  axis: 'x' | 'y';
+  from: number;
+  to: number;
+  /** Where the measuring line sits on the other axis. */
+  at: number;
+  /** The far side is the ground edge, not another hangar. */
+  edge: boolean;
+}
+
+/**
+ * Clear space around hangars, for the dimension overlay: from each hangar to its nearest
+ * neighbour to the right and below (one entry per pair), and to the ground edge on any side
+ * with no hangar between. Lines sit three-quarters of the way along the shared span, which
+ * keeps them off the hangar name (top-left) and the centred width/length labels.
+ */
+export function hangarGaps(hangars: readonly Hangar[], ground: Pick<ExhibitionGround, 'width' | 'height'>): HangarGap[] {
+  const EPS = 1e-6;
+  const at = (a0: number, a1: number, b0: number, b1: number) => {
+    const s = Math.max(a0, b0);
+    return s + (Math.min(a1, b1) - s) * 0.75;
+  };
+  const gaps: HangarGap[] = [];
+  for (const h of hangars) {
+    const r = h.x + h.width;
+    const b = h.y + h.height;
+    const sameRow = hangars.filter((o) => o !== h && o.y < b - EPS && o.y + o.height > h.y + EPS);
+    const right = sameRow.filter((o) => o.x >= r - EPS).sort((p, q) => p.x - q.x)[0];
+    if (right) {
+      if (right.x - r > EPS) gaps.push({ axis: 'x', from: r, to: right.x, at: at(h.y, b, right.y, right.y + right.height), edge: false });
+    } else if (ground.width - r > EPS) gaps.push({ axis: 'x', from: r, to: ground.width, at: at(h.y, b, h.y, b), edge: true });
+    if (h.x > EPS && !sameRow.some((o) => o.x + o.width <= h.x + EPS)) gaps.push({ axis: 'x', from: 0, to: h.x, at: at(h.y, b, h.y, b), edge: true });
+
+    const sameColumn = hangars.filter((o) => o !== h && o.x < r - EPS && o.x + o.width > h.x + EPS);
+    const below = sameColumn.filter((o) => o.y >= b - EPS).sort((p, q) => p.y - q.y)[0];
+    if (below) {
+      if (below.y - b > EPS) gaps.push({ axis: 'y', from: b, to: below.y, at: at(h.x, r, below.x, below.x + below.width), edge: false });
+    } else if (ground.height - b > EPS) gaps.push({ axis: 'y', from: b, to: ground.height, at: at(h.x, r, h.x, r), edge: true });
+    if (h.y > EPS && !sameColumn.some((o) => o.y + o.height <= h.y + EPS)) gaps.push({ axis: 'y', from: 0, to: h.y, at: at(h.x, r, h.x, r), edge: true });
+  }
+  return gaps;
+}
+
+/** Where every hangar lands at the given gaps — positions only, no validation (see spaceHangars). */
+export function respacedHangars(hangars: readonly Hangar[], spacing: HangarSpacing): Hangar[] {
+  const gapX = Number(spacing.gapX);
+  const gapY = Number(spacing.gapY);
+  const placed = new Map<number, { x: number; y: number }>();
+  let prevBottom: number | null = null;
+  for (const row of hangarRows(hangars)) {
+    const top = Math.min(...row.map((h) => h.y));
+    const dy = prevBottom === null ? 0 : prevBottom + gapY - top;
+    let nextX: number | null = null;
+    for (const h of row) {
+      const x: number = nextX ?? h.x;
+      placed.set(h.id, { x: clean(x), y: clean(h.y + dy) });
+      nextX = x + h.width + gapX;
+    }
+    prevBottom = Math.max(...row.map((h) => h.y + dy + h.height));
+  }
+  return hangars.map((h) => ({ ...h, ...placed.get(h.id)! }));
+}
+
+/**
+ * Re-space every hangar to the given gaps, keeping rows and their order: the first hangar in
+ * each row and the top row stay put, the rest slide (hangars keep their vertical offsets within
+ * a row). Stalls and in-hangar markers are hangar-relative, so they move with their hangar.
+ * Refuses spacing that pushes a hangar past the ground edge, onto another hangar, or onto a
+ * ground-level marker hangars may not cover (parking, counters) — the same rules as moving one.
+ */
+export function spaceHangars(data: StallLayoutData, spacing: HangarSpacing): Result<StallLayoutData> {
+  if (!(Number(spacing.gapX) >= 0) || !(Number(spacing.gapY) >= 0)) return fail('Gaps cannot be negative.');
+  const hangars = respacedHangars(data.hangars, spacing);
+
+  const g = data.ground;
+  const u = UNIT_LABELS[g.unit];
+  const off = hangars.filter((h) => !isInsideGround(h, g));
+  if (off.length) {
+    const needW = clean(Math.max(...hangars.map((h) => h.x + h.width)));
+    const needH = clean(Math.max(...hangars.map((h) => h.y + h.height)));
+    return fail(
+      `${nameList(off.map((h) => h.name))} would go past the ground edge — this spacing needs ${needW} × ${needH} ${u} and the ground is ${g.width} × ${g.height} ${u}. Use a smaller gap, or enlarge the ground with Edit ground.`,
+      needW > g.width + 1e-6 ? 'gapX' : 'gapY',
+    );
+  }
+  for (let i = 0; i < hangars.length; i++)
+    for (let j = i + 1; j < hangars.length; j++)
+      if (rectsOverlap(hangars[i]!, hangars[j]!)) return fail(`${hangars[i]!.name} and ${hangars[j]!.name} would overlap at this spacing.`);
+  for (const h of hangars) {
+    const was = data.hangars.find((o) => o.id === h.id)!;
+    const blocker = data.annotations.find((a) => blocksHangars(a) && rectsOverlap(h, a) && !rectsOverlap(was, a));
+    if (blocker) return fail(`${h.name} would land on "${blocker.label}" — move that marker first, or use a different gap.`);
+  }
+  return ok({ ...data, hangars });
 }
 
 // ── Hangar placement validation ──────────────────────────────────────────────

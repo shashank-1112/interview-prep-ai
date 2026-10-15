@@ -13,11 +13,16 @@ import {
   mergeCandidate,
   mergeStalls,
   moveStalls,
+  currentHangarSpacing,
+  hangarGaps,
+  hangarRows,
+  resizeGround,
+  spaceHangars,
   splitStall,
   stallFitEstimate,
   validateHangarDraft,
 } from './layoutOps';
-import type { GenerateGroundForm, GenerateStallsForm, Stall } from './types';
+import type { GenerateGroundForm, GenerateStallsForm, LayoutAnnotation, Stall, StallLayoutData } from './types';
 
 const testExhibition = { name: 'Expo', venueName: 'Venue' };
 
@@ -103,6 +108,175 @@ describe('generateGround', () => {
 
   it('auto-fills the hangar size to fit the grid', () => {
     expect(autoFillHangarSize(groundForm)).toEqual({ hangarWidth: 27, hangarHeight: 17 });
+  });
+
+  it('rounds the auto-filled hangar size down to whole units, so the hangars still fit', () => {
+    // (61 − 2·2 − 2) / 2 = 27.5 → 27;  (41.9 − 2·2 − 2) / 2 = 17.95 → 17
+    expect(autoFillHangarSize({ ...groundForm, width: 61, height: 41.9 })).toEqual({ hangarWidth: 27, hangarHeight: 17 });
+    // 3 per row: (60 − 4 − 4) / 3 = 17.33… → 17
+    expect(autoFillHangarSize({ ...groundForm, hangarsPerRow: 3 })).toEqual({ hangarWidth: 17, hangarHeight: 36 });
+    // Less than one whole unit left per hangar → doesn't fit.
+    expect(autoFillHangarSize({ ...groundForm, width: 6.5 })).toBeNull();
+  });
+});
+
+describe('resizeGround (Edit ground)', () => {
+  // Demo seed: 60 × 40 m ground; hangars reach x 48 (Hangar C) and y 36 (Hangar B).
+  const mark = (id: number, over: Partial<LayoutAnnotation>): LayoutAnnotation => ({
+    id, type: 'road', label: `M${id}`, x: 0, y: 0, width: 4, height: 4, hangarId: null, ...over,
+  });
+  const withMarkers = (...annotations: LayoutAnnotation[]): StallLayoutData => ({ ...defaultLayout(), annotations });
+
+  it('keeps every hangar and stall exactly where it was', () => {
+    const d = defaultLayout();
+    const r = resizeGround(d, { width: 80, height: 50, gridSize: 0.5 });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.ground).toMatchObject({ width: 80, height: 50, gridSize: 0.5, unit: 'meter', exhibitionName: d.ground.exhibitionName });
+    expect(r.value.hangars).toEqual(d.hangars);
+    expect(r.value.stalls).toEqual(d.stalls);
+  });
+
+  it('moves items beyond the right/bottom edge with that edge; top/left and inside items stay', () => {
+    const d = withMarkers(
+      mark(1, { x: 62, y: 10, width: 6, height: 20 }), // road right of the ground (gap 2)
+      mark(2, { x: 10, y: 43, width: 30, height: 6 }), // road below the ground (gap 3)
+      mark(3, { x: -8, y: 10, width: 6, height: 20 }), // road left of the ground
+      mark(4, { type: 'parking', x: 62, y: 43, width: 6, height: 6 }), // beyond the bottom-right corner
+      mark(5, { type: 'entry', x: 56, y: 20, width: 4, height: 3 }), // gate on the right edge
+      mark(6, { type: 'washroom', x: 50, y: 20, width: 4, height: 3 }), // inside, not on an edge
+    );
+    const r = resizeGround(d, { width: 70, height: 45, gridSize: 0.5 });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const at = (id: number) => r.value.annotations.find((a) => a.id === id)!;
+    expect(at(1)).toMatchObject({ x: 72, y: 10 });
+    expect(at(2)).toMatchObject({ x: 10, y: 48 });
+    expect(at(3)).toMatchObject({ x: -8, y: 10 });
+    expect(at(4)).toMatchObject({ x: 72, y: 48 });
+    expect(at(5)).toMatchObject({ x: 66, y: 20 }); // still flush on the (new) right edge
+    expect(at(6)).toBe(d.annotations[5]);
+  });
+
+  it('refuses a size that would cut off a hangar, naming it and the minimum size', () => {
+    const r = resizeGround(defaultLayout(), { width: 45, height: 40, gridSize: 0.5 });
+    expect(r).toMatchObject({ ok: false, field: 'width' });
+    expect(!r.ok && r.error).toMatch(/Hangar C would be cut off — the ground must be at least 48 × 36 m/);
+    const tooShort = resizeGround(defaultLayout(), { width: 60, height: 30, gridSize: 0.5 });
+    expect(tooShort).toMatchObject({ ok: false, field: 'height' });
+    expect(resizeGround(defaultLayout(), { width: 48, height: 36, gridSize: 0.5 }).ok).toBe(true);
+  });
+
+  it('refuses a size that would cut off a marker inside the ground', () => {
+    const d = withMarkers(mark(1, { type: 'washroom', label: 'WC', x: 50, y: 30, width: 6, height: 6 }));
+    const r = resizeGround(d, { width: 54, height: 40, gridSize: 0.5 });
+    expect(!r.ok && r.error).toMatch(/WC would be cut off/);
+  });
+
+  it('refuses a grid coarser than the smallest stall can take, but allows a finer one', () => {
+    // Demo stalls are 3 × 2 m, so the grid can be at most 1 m (minimum size = 2 grid steps).
+    expect(resizeGround(defaultLayout(), { width: 60, height: 40, gridSize: 1 }).ok).toBe(true);
+    const r = resizeGround(defaultLayout(), { width: 60, height: 40, gridSize: 1.5 });
+    expect(r).toMatchObject({ ok: false, field: 'gridSize' });
+    expect(!r.ok && r.error).toMatch(/at most 1 m/);
+    expect(resizeGround(defaultLayout(), { width: 60, height: 40, gridSize: 0.25 }).ok).toBe(true);
+  });
+
+  it('refuses a shrink that would make two roads overlap', () => {
+    const d = withMarkers(
+      mark(1, { x: 62, y: 0, width: 6, height: 46 }), // right of the ground, running down past its bottom edge
+      mark(2, { x: 40, y: 42, width: 20, height: 6 }), // below the ground, ending short of road 1
+    );
+    const r = resizeGround(d, { width: 50, height: 40, gridSize: 0.5 });
+    expect(!r.ok && r.error).toMatch(/Roads "M1" and "M2" would overlap/);
+  });
+});
+
+describe('hangarGaps (gap dimensions)', () => {
+  const hangar = (id: number, x: number, y: number, width: number, height: number) => ({ id, name: `H${id}`, code: `H-${id}`, x, y, width, height });
+  const describeGaps = (gaps: ReturnType<typeof hangarGaps>) =>
+    gaps.map((g) => `${g.axis} ${g.from}→${g.to}${g.edge ? ' edge' : ''}`).sort();
+
+  it('measures between neighbours (once per pair) and out to the ground edge where nothing is between', () => {
+    // 60 × 40 ground: A and B side by side, C under A — the planner's default 3-hangar ground.
+    const gaps = hangarGaps([hangar(1, 2, 2, 27, 17), hangar(2, 31, 2, 27, 17), hangar(3, 2, 21, 27, 17)], { width: 60, height: 40 });
+    expect(describeGaps(gaps)).toEqual(
+      [
+        'x 29→31', // A ↔ B
+        'y 19→21', // A ↕ C
+        'x 0→2 edge', // A, C to the left edge
+        'x 0→2 edge',
+        'y 0→2 edge', // A, B to the top edge
+        'y 0→2 edge',
+        'x 58→60 edge', // B to the right edge
+        'x 29→60 edge', // C to the right edge (nothing beside it)
+        'y 19→40 edge', // B to the bottom edge (nothing under it)
+        'y 38→40 edge', // C to the bottom edge
+      ].sort(),
+    );
+  });
+
+  it('places each line three-quarters along the shared span', () => {
+    const [between] = hangarGaps([hangar(1, 0, 0, 10, 20), hangar(2, 12, 4, 10, 20)], { width: 22, height: 24 }).filter((g) => !g.edge);
+    expect(between).toMatchObject({ axis: 'x', from: 10, to: 12, at: 4 + (20 - 4) * 0.75 });
+  });
+
+  it('skips touching hangars and hangars flush against an edge', () => {
+    const gaps = hangarGaps([hangar(1, 0, 0, 10, 10), hangar(2, 10, 0, 10, 10)], { width: 20, height: 10 });
+    expect(gaps).toEqual([]);
+  });
+});
+
+describe('spaceHangars (Space hangars)', () => {
+  // Demo seed: row 1 = Hangar A (x 2, 24 wide) + Hangar C (x 28); row 2 = Hangar B (y 20). Gaps are 2 m.
+  const hangar = (id: number, x: number, y: number, width: number, height: number) => ({ id, name: `H${id}`, code: `H-${id}`, x, y, width, height });
+
+  it('reads rows and the current gaps', () => {
+    const d = defaultLayout();
+    expect(hangarRows(d.hangars).map((r) => r.map((h) => h.code))).toEqual([['H-A', 'H-C'], ['H-B']]);
+    expect(currentHangarSpacing(d.hangars)).toEqual({ gapX: 2, gapY: 2 });
+    expect(currentHangarSpacing([d.hangars[0]!])).toEqual({ gapX: null, gapY: null });
+  });
+
+  it('slides hangars to the new gaps; the first in each row and the top row stay put; stalls are untouched', () => {
+    const d = defaultLayout();
+    const r = spaceHangars(d, { gapX: 6, gapY: 4 });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const at = (code: string) => r.value.hangars.find((h) => h.code === code)!;
+    expect(at('H-A')).toMatchObject({ x: 2, y: 2 });
+    expect(at('H-C')).toMatchObject({ x: 32, y: 2 }); // 2 + 24 + 6
+    expect(at('H-B')).toMatchObject({ x: 2, y: 22 }); // row 1 bottom 18 + 4
+    expect(r.value.stalls).toEqual(d.stalls); // hangar-relative, so they move with their hangar
+    expect(r.value.annotations).toEqual(d.annotations);
+  });
+
+  it('keeps vertical offsets within a row and stacks rows below the tallest hangar', () => {
+    const d: StallLayoutData = { ...defaultLayout(), hangars: [hangar(1, 0, 0, 10, 10), hangar(2, 15, 2, 10, 6), hangar(3, 0, 25, 10, 10)], stalls: [] };
+    const r = spaceHangars(d, { gapX: 1, gapY: 3 });
+    expect(r.ok && r.value.hangars.map((h) => [h.x, h.y])).toEqual([[0, 0], [11, 2], [0, 13]]);
+  });
+
+  it('refuses spacing that pushes a hangar past the ground edge, saying what size it needs', () => {
+    const wide = spaceHangars(defaultLayout(), { gapX: 15, gapY: 2 });
+    expect(wide).toMatchObject({ ok: false, field: 'gapX' });
+    expect(!wide.ok && wide.error).toMatch(/Hangar C would go past the ground edge — this spacing needs 61 × 36 m and the ground is 60 × 40 m/);
+    const tall = spaceHangars(defaultLayout(), { gapX: 2, gapY: 7 });
+    expect(tall).toMatchObject({ ok: false, field: 'gapY' });
+    expect(!tall.ok && tall.error).toMatch(/Hangar B/);
+  });
+
+  it('refuses landing a hangar on parking or a counter, but not one it already overlapped', () => {
+    // Right of Hangar C now (C spans x 28–48); a 6 m gap moves C to 32–52, onto it.
+    const parking: LayoutAnnotation = { id: 1, type: 'parking', label: 'Staff parking', x: 50, y: 4, width: 6, height: 4, hangarId: null };
+    const r = spaceHangars({ ...defaultLayout(), annotations: [parking] }, { gapX: 6, gapY: 2 });
+    expect(!r.ok && r.error).toMatch(/Hangar C would land on "Staff parking"/);
+    const alreadyUnder = { ...parking, x: 40 }; // Hangar C (28–48) already covers it
+    expect(spaceHangars({ ...defaultLayout(), annotations: [alreadyUnder] }, { gapX: 3, gapY: 2 }).ok).toBe(true);
+  });
+
+  it('rejects negative gaps', () => {
+    expect(spaceHangars(defaultLayout(), { gapX: -1, gapY: 2 }).ok).toBe(false);
   });
 });
 

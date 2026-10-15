@@ -1,4 +1,15 @@
-import { Copy, CopyPlus, Grid3x3, LayoutGrid, MapPin, PencilLine, SquareArrowOutUpRight, Trash2 } from 'lucide-react';
+import {
+  AlignHorizontalSpaceAround,
+  Copy,
+  CopyPlus,
+  Grid3x3,
+  LayoutGrid,
+  MapPin,
+  PencilLine,
+  PencilRuler,
+  SquareArrowOutUpRight,
+  Trash2,
+} from 'lucide-react';
 import { useMemo } from 'react';
 import { Button, formatPrice } from '../components/ui';
 import { annotationMeta, stallColorFor, stallStatusLabelFor, UNIT_LABELS } from '../domain/constants';
@@ -44,14 +55,29 @@ function Overview({ data }: { data: StallLayoutData }) {
     return { booked, pipeline };
   }, [data.stalls]);
   const total = data.stalls.length || 1;
+  const canManage = useLayoutStore((s) => s.canManageLayout);
+  const openModal = useLayoutStore((s) => s.openModal);
   return (
     <div className="space-y-4">
       <div>
         <p className="text-xs uppercase tracking-wide text-slate-500">Overview</p>
         <h2 className="text-lg font-semibold text-slate-900">{data.ground.exhibitionName || 'Untitled exhibition'}</h2>
         <p className="text-xs text-slate-500">
-          {data.ground.venueName} · {data.ground.width}×{data.ground.height} {UNIT_LABELS[data.ground.unit]}
+          {data.ground.venueName} · {data.ground.width}×{data.ground.height} {UNIT_LABELS[data.ground.unit]} · grid {data.ground.gridSize}{' '}
+          {UNIT_LABELS[data.ground.unit]}
         </p>
+        {canManage && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button size="sm" icon={<PencilRuler size={14} />} onClick={() => openModal({ kind: 'editGround' })}>
+              Edit ground size
+            </Button>
+            {data.hangars.length > 1 && (
+              <Button size="sm" icon={<AlignHorizontalSpaceAround size={14} />} onClick={() => openModal({ kind: 'spaceHangars' })}>
+                Space hangars
+              </Button>
+            )}
+          </div>
+        )}
       </div>
       <div className="grid grid-cols-3 gap-2 text-center">
         {[
@@ -132,6 +158,11 @@ export function DetailsPanel({ data }: { data: StallLayoutData }) {
               >
                 Duplicate + stalls
               </Button>
+              {data.hangars.length > 1 && (
+                <Button size="sm" icon={<AlignHorizontalSpaceAround size={14} />} onClick={() => openModal({ kind: 'spaceHangars' })} title="Set the gap between all hangars">
+                  Space hangars
+                </Button>
+              )}
             </div>
             <Button size="sm" variant="ghost" className="w-full text-red-600 hover:bg-red-50 hover:text-red-700" icon={<Trash2 size={14} />} onClick={() => deleteHangar(h.id)}>
               Delete hangar

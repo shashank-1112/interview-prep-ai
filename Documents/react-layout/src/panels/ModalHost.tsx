@@ -3,6 +3,8 @@ import { useLayoutStore } from '../store/layoutStore';
 
 // Every generator/edit form is its own lazy chunk — none of it is needed to paint the ground view.
 const GenerateGroundForm = lazy(() => import('../forms/GenerateGroundForm'));
+const EditGroundForm = lazy(() => import('../forms/EditGroundForm'));
+const SpaceHangarsForm = lazy(() => import('../forms/SpaceHangarsForm'));
 const GroundBoundaryForm = lazy(() => import('../forms/GroundBoundaryForm'));
 const HangarForm = lazy(() => import('../forms/HangarForm'));
 const GenerateStallsForm = lazy(() => import('../forms/GenerateStallsForm'));
@@ -21,6 +23,12 @@ export function ModalHost() {
   switch (modal.kind) {
     case 'generateGround':
       content = <GenerateGroundForm onClose={close} />;
+      break;
+    case 'editGround':
+      content = <EditGroundForm onClose={close} />;
+      break;
+    case 'spaceHangars':
+      content = <SpaceHangarsForm onClose={close} />;
       break;
     case 'groundBoundary':
       content = <GroundBoundaryForm onClose={close} />;

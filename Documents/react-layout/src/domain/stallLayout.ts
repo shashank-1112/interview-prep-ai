@@ -1,9 +1,12 @@
 /**
  * Stall layout patterns for "Generate Stalls".
  *
- * - `perimeter` (default, matches the planning sketch): rows of stalls attached
- *   to the hangar walls, optional back-to-back island blocks in the centre,
- *   separated by aisles. Every stall is left open on the side facing an aisle.
+ * - `staggered` (default — the client's standard hall): wall rows plus islands
+ *   that alternately back onto the bottom row and the top row, so the free
+ *   aisle zigzags between them. See planStaggered.
+ * - `perimeter`: rows of stalls attached to the hangar walls, optional
+ *   back-to-back island blocks in the centre, separated by aisles. Every stall
+ *   is left open on the side facing an aisle.
  * - `grid`: the original rows × columns fill with gaps.
  *
  * The planner is pure and cheap, so the form uses it for a live preview and the
@@ -12,7 +15,7 @@
 import { clean, snap } from './geometry';
 import type { GenerateStallsForm, Rect, RectSide } from './types';
 
-export type StallPattern = 'perimeter' | 'grid';
+export type StallPattern = 'staggered' | 'perimeter' | 'grid';
 
 /** Generate Stalls input: the ported GenerateStallsForm plus the layout-pattern options. */
 export interface GenerateStallsInput extends GenerateStallsForm {
@@ -144,7 +147,11 @@ export function planStallLayout(
     return { stalls, overflowAt, counts, islandCount: 0 };
   }
 
-  // ── Perimeter: rows attached to the walls ──
+  // ── Perimeter / staggered: rows attached to the walls ──
+  // `staggered` (the client's standard hall) differs in three ways: the side columns run all
+  // the way down to the bottom wall; the bottom row stops one aisle short of each side, leaving
+  // a way in at both bottom corners; and each island backs onto a wall row (see below).
+  const staggered = f.pattern === 'staggered';
   const m = Math.max(0, Number(f.wallGap) || 0);
   const aisle = Math.max(0, Number(f.aisle) || 0);
   const walls = new Set(f.walls);
@@ -153,7 +160,12 @@ export function planStallLayout(
   const left = walls.has('left');
   const right = walls.has('right');
   const colStart = top ? m + depth : m;
-  const colEnd = bottom ? H - m - depth : H - m;
+  const colEnd = bottom && !staggered ? H - m - depth : H - m;
+  // Interior between the wall rows, and the island band one aisle in from the side columns.
+  const topEdge = top ? m + depth : m;
+  const bottomEdge = bottom ? H - m - depth : H - m;
+  const x0 = (left ? m + depth : m) + aisle;
+  const x1 = (right ? W - m - depth : W - m) - aisle;
   const planned: PlannedStall[] = [];
   const push = (r: Rect, zone: PlanZone, candidates: RectSide[]) =>
     planned.push({ x: clean(r.x), y: clean(r.y), width: r.width, height: r.height, zone, openSides: candidates });
@@ -168,8 +180,15 @@ export function planStallLayout(
     for (let i = 0; i < n; i++) push({ x: W - m - depth, y: colStart + i * frontage, width: depth, height: frontage }, 'right', ['left']);
   }
   if (bottom && depth <= H - 2 * m + EPS && (!top || H - 2 * m >= 2 * depth - EPS)) {
-    const n = fitCount(W - 2 * m, frontage);
-    for (let i = n - 1; i >= 0; i--) push({ x: m + i * frontage, y: H - m - depth, width: frontage, height: depth }, 'bottom', ['top']);
+    const from = staggered ? x0 : m;
+    const n = fitCount((staggered ? x1 : W - m) - from, frontage);
+    for (let i = n - 1; i >= 0; i--) {
+      const sides: RectSide[] = ['top'];
+      // Staggered: the end stalls face the gaps at the bottom corners.
+      if (staggered && i === 0) sides.push('left');
+      if (staggered && i === n - 1) sides.push('right');
+      push({ x: from + i * frontage, y: H - m - depth, width: frontage, height: depth }, 'bottom', sides);
+    }
   }
   if (left && depth <= W - 2 * m + EPS && (!right || W - 2 * m >= 2 * depth - EPS)) {
     const n = fitCount(colEnd - colStart, frontage);
@@ -178,21 +197,23 @@ export function planStallLayout(
 
   // ── Centre islands: pairs of stalls back to back, open on their outer sides ──
   let islandCount = 0;
-  if (f.islands) {
-    const x0 = (left ? m + depth : m) + aisle;
-    const x1 = (right ? W - m - depth : W - m) - aisle;
-    const y0 = (top ? m + depth : m) + aisle;
-    const y1 = (bottom ? H - m - depth : H - m) - aisle;
+  if (f.islands || staggered) {
+    const y0 = topEdge + aisle;
+    const y1 = bottomEdge - aisle;
     const islandW = depth * 2;
     const n = x1 - x0 >= islandW - EPS ? Math.floor((x1 - x0 + aisle + EPS) / (islandW + aisle)) : 0;
-    const rows = fitCount(y1 - y0, frontage);
+    // Staggered islands keep only one aisle (on one side) instead of two, so they run one row deeper.
+    const rows = fitCount(staggered ? bottomEdge - topEdge - aisle : y1 - y0, frontage);
     if (n > 0 && rows > 0) {
       islandCount = n;
       const groupW = n * islandW + (n - 1) * aisle;
       // Centre the islands across the free width, on the grid, never closer than one aisle to the wall rows.
-      const startX = Math.min(Math.max(snap(x0 + (x1 - x0 - groupW) / 2, grid), x0), x1 - groupW);
+      // Staggered packs them from the left instead, one aisle from the left column.
+      const startX = staggered ? x0 : Math.min(Math.max(snap(x0 + (x1 - x0 - groupW) / 2, grid), x0), x1 - groupW);
       for (let i = 0; i < n; i++) {
         const xi = startX + i * (islandW + aisle);
+        // Staggered: island 0 backs onto the bottom row, island 1 onto the top row, and so on.
+        const yi = !staggered ? y0 : i % 2 === 0 ? bottomEdge - rows * frontage : topEdge;
         for (const [colX, outer] of [
           [xi, 'left'],
           [xi + depth, 'right'],
@@ -201,7 +222,7 @@ export function planStallLayout(
             const sides: RectSide[] = [outer];
             if (r === 0) sides.push('top');
             if (r === rows - 1) sides.push('bottom');
-            push({ x: colX, y: y0 + r * frontage, width: depth, height: frontage }, 'island', sides);
+            push({ x: colX, y: yi + r * frontage, width: depth, height: frontage }, 'island', sides);
           }
         }
       }

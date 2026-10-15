@@ -15,6 +15,8 @@ export interface EditorState {
 
 export type ModalState =
   | { kind: 'generateGround' }
+  | { kind: 'editGround' }
+  | { kind: 'spaceHangars' }
   | { kind: 'groundBoundary' }
   | { kind: 'addHangar' }
   | { kind: 'editHangar'; hangarId: number }

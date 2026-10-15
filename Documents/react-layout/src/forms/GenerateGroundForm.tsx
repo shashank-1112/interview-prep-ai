@@ -1,7 +1,8 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Wand2 } from 'lucide-react';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { Button, Modal } from '../components/ui';
+import { UNIT_LABELS } from '../domain/constants';
 import { autoFillHangarSize } from '../domain/layoutOps';
 import type { GenerateGroundForm as GenerateGroundValues } from '../domain/types';
 import { generateGroundLayout } from '../store/actions';
@@ -14,7 +15,7 @@ function defaults(): GenerateGroundValues {
     unit: 'meter',
     width: 60,
     height: 40,
-    gridSize: 0.5,
+    gridSize: 1,
     numHangars: 3,
     hangarPrefix: 'Hangar',
     hangarWidth: 20,
@@ -31,6 +32,7 @@ export default function GenerateGroundForm({ onClose }: { onClose: () => void })
   const hasLayout = useLayoutStore((s) => s.data !== null);
   const exhibitionMeta = useLayoutStore((s) => s.exhibitionMeta);
   const form = useForm<GenerateGroundValues>({ resolver: zodResolver(generateGroundSchema), defaultValues: defaults(), mode: 'onTouched' });
+  const u = UNIT_LABELS[useWatch({ control: form.control, name: 'unit' })];
 
   const autoFit = () => {
     const size = autoFillHangarSize(form.getValues());
@@ -83,23 +85,23 @@ export default function GenerateGroundForm({ onClose }: { onClose: () => void })
               { value: 'feet', label: 'Feet' },
             ]}
           />
-          <NumberField form={form} name="width" label="Width" />
-          <NumberField form={form} name="height" label="Length" />
-          <NumberField form={form} name="gridSize" label="Grid size" hint="Snap step" />
+          <NumberField form={form} name="width" label={`Width (${u})`} />
+          <NumberField form={form} name="height" label={`Length (${u})`} />
+          <NumberField form={form} name="gridSize" label={`Grid size (${u})`} hint="Snap step" />
           <SectionTitle>Hangars</SectionTitle>
           <NumberField form={form} name="numHangars" label="Number of hangars" step={1} min={1} />
           <NumberField form={form} name="hangarsPerRow" label="Hangars per row" step={1} min={1} />
           <TextField form={form} name="hangarPrefix" label="Name prefix" className="col-span-2" hint='e.g. "Hangar" → Hangar A, Hangar B…' />
-          <NumberField form={form} name="hangarWidth" label="Hangar width" />
-          <NumberField form={form} name="hangarHeight" label="Hangar length" />
-          <NumberField form={form} name="gap" label="Gap" />
+          <NumberField form={form} name="hangarWidth" label={`Approx hangar width (${u})`} />
+          <NumberField form={form} name="hangarHeight" label={`Approx hangar length (${u})`} />
+          <NumberField form={form} name="gap" label={`Gap (${u})`} />
           <div className="flex items-end">
             <Button size="sm" icon={<Wand2 size={14} />} onClick={autoFit} className="w-full">
               Auto-fit size
             </Button>
           </div>
-          <NumberField form={form} name="startX" label="Start X" />
-          <NumberField form={form} name="startY" label="Start Y" />
+          <NumberField form={form} name="startX" label={`Start X (${u})`} />
+          <NumberField form={form} name="startY" label={`Start Y (${u})`} />
         </div>
       </form>
     </Modal>
